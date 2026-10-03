@@ -93,6 +93,9 @@ def test_prompts_are_reread_on_every_call(tmp_path):
 
 def test_repo_prompts_render(settings):
     for name, kw in [("clean", dict(text="t", context="")), ("clean_link", dict(text="t", context="")),
-                     ("classify", dict(text="t", topics="-", feedback="-")),
+                     ("classify", dict(text="t", topics="-", feedback="-", today="2026-10-03", entities="-")),
+                     ("extract", dict(text="t", note="n", today="2026-10-03", entities="-")),
+                     ("edit", dict(text="t", note_id=1, title="x", topic="y", summary="z", topics="-",
+                                   today="2026-10-03")),
                      ("ask", dict(text="t", question="q", notes="n", entity=""))]:
         assert len(render(settings.prompts_dir, name, **kw)) == 2

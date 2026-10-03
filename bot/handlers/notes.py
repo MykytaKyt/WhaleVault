@@ -5,6 +5,7 @@ from html import escape
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.filters import Filter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, ForceReply, Message
@@ -12,10 +13,12 @@ from aiogram.types import CallbackQuery, ForceReply, Message
 from ..db import notes as notes_db
 from ..db import topics as topics_db
 from ..deps import Deps
+from ..llm.client import LLMError
+from ..pipeline import edits
 from ..pipeline.worker import NoteResult, Worker, finish_question_as_note
-from . import render
+from . import render, render_more
 from .ask import answer_question
-from .cb import MoveCB, NoteCB
+from .cb import MergeCB, MoveCB, NoteCB
 
 log = logging.getLogger(__name__)
 router = Router(name="notes")
@@ -47,6 +50,46 @@ async def new_topic_name(message: Message, state: FSMContext, deps: Deps) -> Non
     topic_id = topics_db.create_topic(deps.conn, name)
     topics_db.move_note(deps.conn, note_id, topic_id)
     await message.answer(f"✅ #{note_id} → <b>{escape(name)}</b>. Запомнил исправление.")
+
+
+class ReplyToNote(Filter):
+    """Passes a reply to a bot message that shows a note; injects note_id."""
+
+    async def __call__(self, message: Message, deps: Deps) -> bool | dict:
+        r = message.reply_to_message
+        if r is None or not message.text or message.text.startswith("/"):
+            return False
+        note_id = notes_db.note_for_message(deps.conn, r.message_id)
+        if note_id is None:
+            return False
+        note = notes_db.get_note(deps.conn, note_id)
+        return {"note_id": note_id} if note and note["status"] in ("done", "question") else False
+
+
+@router.message(ReplyToNote())
+async def reply_edit(message: Message, note_id: int, deps: Deps) -> None:
+    status = await message.reply("✍️ Понял, разбираю…")
+    try:
+        async with deps.gpu_lock:
+            intent = await edits.classify_edit(deps, note_id, message.text)
+        out = await edits.apply_edit(deps, note_id, intent, message.text)
+    except LLMError as e:
+        log.error("edit of #%s failed: %s", note_id, e)
+        await status.edit_text("⚠️ Не получилось разобрать правку. Попробуй кнопками под заметкой.")
+        return
+    lines = [escape(out.message)]
+    if out.extracted:
+        lines += render_more.extracted_lines(out.extracted)
+    kb = None
+    if out.merge_id:
+        kb = render_more.merge_kb(out.merge_id)
+    elif out.task_choices:
+        kb = render_more.task_choice_kb(out.task_choices, out.date)
+    elif out.intent == "delete":
+        kb = render.InlineKeyboardMarkup(inline_keyboard=[[render.InlineKeyboardButton(
+            text="↩️ Вернуть", callback_data=NoteCB(action="restore", id=note_id).pack())]])
+    await status.edit_text("\n".join(lines), reply_markup=kb)
+    notes_db.link_message(deps.conn, status.message_id, note_id)
 
 
 @router.message(F.text)
@@ -109,7 +152,8 @@ async def _safe_edit(cq: CallbackQuery, text: str, kb=None) -> None:
 async def cb_view(cq: CallbackQuery, callback_data: NoteCB, deps: Deps) -> None:
     parts = render.note_full(deps.conn, callback_data.id)
     for i, part in enumerate(parts):
-        await cq.message.answer(part, reply_markup=render.note_kb(callback_data.id) if i == len(parts) - 1 else None)
+        sent = await cq.message.answer(part, reply_markup=render.note_kb(callback_data.id) if i == len(parts) - 1 else None)
+        notes_db.link_message(deps.conn, sent.message_id, callback_data.id)
     await cq.answer()
 
 
@@ -177,6 +221,29 @@ async def cb_keep(cq: CallbackQuery, callback_data: NoteCB, deps: Deps) -> None:
     await finish_question_as_note(deps, callback_data.id)
     await cq.message.edit_reply_markup(reply_markup=render.note_kb(callback_data.id))
     await cq.message.answer(f"💾 Сохранил #{callback_data.id} как заметку.")
+    await cq.answer()
+
+
+@router.callback_query(NoteCB.filter(F.action == "question"))
+async def cb_question(cq: CallbackQuery, callback_data: NoteCB, bot: Bot, deps: Deps) -> None:
+    notes_db.mark_question(deps.conn, callback_data.id)
+    note = notes_db.get_note(deps.conn, callback_data.id)
+    kb = render.InlineKeyboardMarkup(inline_keyboard=[[
+        render.InlineKeyboardButton(text="💾 Сохранить", callback_data=NoteCB(action="keep", id=note["id"]).pack()),
+        render.InlineKeyboardButton(text="🗑 Удалить", callback_data=NoteCB(action="delete", id=note["id"]).pack())]])
+    await cq.message.edit_reply_markup(reply_markup=kb)
+    await cq.answer("Отвечаю как на вопрос")
+    asyncio.create_task(answer_question(bot, deps, cq.message.chat.id, note["clean_text"] or note["raw_text"]))
+
+
+@router.callback_query(MergeCB.filter())
+async def cb_merge(cq: CallbackQuery, callback_data: MergeCB, deps: Deps) -> None:
+    if callback_data.yes:
+        out = await edits.merge(deps, callback_data.id)
+    else:
+        deps.conn.execute("DELETE FROM pending_merges WHERE id = ?", (callback_data.id,))
+        out = edits.EditOutcome("merge_with", "Оставил заметки раздельно.")
+    await _safe_edit(cq, escape(out.message))
     await cq.answer()
 
 

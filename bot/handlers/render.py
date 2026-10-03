@@ -30,6 +30,18 @@ def split_text(text: str, limit: int = LIMIT) -> list[str]:
     return parts
 
 
+def pack_lines(lines: list[str], limit: int = LIMIT) -> list[str]:
+    """Join HTML lines into messages without cutting inside a line (each line is balanced HTML)."""
+    parts, cur = [], ""
+    for line in lines:
+        for piece in ([line] if len(line) <= limit else split_text(line, limit)):
+            if cur and len(cur) + len(piece) + 1 > limit:
+                parts.append(cur)
+                cur = ""
+            cur = f"{cur}\n{piece}" if cur else piece
+    return parts + [cur] if cur or not parts else parts
+
+
 def date(iso: str) -> str:
     return f"{iso[8:10]}.{iso[5:7]}.{iso[:4]}" if iso and len(iso) >= 10 else ""
 
@@ -63,6 +75,8 @@ def report_text(conn: sqlite3.Connection, r: NoteResult, extra: str = "") -> str
         lines.append(f"🔗 Похожие: {sim}")
     for n, score in r.embed.duplicates:
         lines.append(f"⚠️ Возможный дубль #{n} (сходство {score:.2f})")
+    from .render_more import extracted_lines  # avoid a circular import
+    lines += extracted_lines(r.extracted)
     if r.is_question:
         lines.append("❓ Похоже на вопрос — отвечаю ниже. Сохранить его как заметку?")
     if extra:
@@ -76,10 +90,11 @@ def report_kb(r: NoteResult) -> InlineKeyboardMarkup:
         kb.button(text="💾 Сохранить", callback_data=NoteCB(action="keep", id=r.note_id))
     else:
         kb.button(text="↪️ Не туда", callback_data=NoteCB(action="wrong", id=r.note_id))
+        kb.button(text="❓ Это вопрос", callback_data=NoteCB(action="question", id=r.note_id))
     kb.button(text="🗑 Удалить", callback_data=NoteCB(action="delete", id=r.note_id))
     for n, _ in r.embed.similar:
         kb.button(text=f"#{n}", callback_data=NoteCB(action="view", id=n))
-    kb.adjust(2, max(1, len(r.embed.similar)))
+    kb.adjust(2 if r.is_question else 3, max(1, len(r.embed.similar)))
     return kb.as_markup()
 
 
@@ -108,9 +123,16 @@ def note_full(conn: sqlite3.Connection, note_id: int, raw: bool = False) -> list
         head.append("<i>оригинал:</i>")
     related = notes_db.related(conn, note_id)
     tail = ("\n\n🔗 " + ", ".join(f"#{r['id']} {escape(r['title'] or '')}" for r in related)) if related else ""
+    from .render_more import note_facts_tasks
+    extra = note_facts_tasks(conn, note_id)
+    if extra:
+        tail += "\n" + extra
     parts = split_text(escape(body))
     parts[0] = "\n".join(head) + "\n\n" + parts[0]
-    parts[-1] += tail
+    if len(parts[-1]) + len(tail) <= 4000:
+        parts[-1] += tail
+    else:
+        parts += pack_lines(tail.strip().split("\n"))
     return parts
 
 

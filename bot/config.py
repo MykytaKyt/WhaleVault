@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     gpu_log_minutes: int = 5
     gpu_temp_alert: int = 85
     backup_cron: str = "30 4 * * *"
+    remind_cron: str = "0 9 * * *"
     backup_keep: int = 14
     purge_deleted_days: int = 30
 

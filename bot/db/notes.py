@@ -26,6 +26,7 @@ def get_note(conn: sqlite3.Connection, note_id: int) -> sqlite3.Row | None:
 
 def set_reply_id(conn: sqlite3.Connection, note_id: int, reply_id: int) -> None:
     conn.execute("UPDATE notes SET tg_reply_id = ? WHERE id = ?", (reply_id, note_id))
+    link_message(conn, reply_id, note_id)
 
 
 def set_status(conn: sqlite3.Connection, note_id: int, status: str, error: str | None = None) -> None:
@@ -118,6 +119,11 @@ def purge_deleted(conn: sqlite3.Connection, days: int) -> int:
             (f"-{int(days)} days",))]
         for nid in ids:
             delete_chunks(conn, nid)
+            # facts/tasks reference notes with ON DELETE SET NULL; a purged note takes them along
+            conn.execute("UPDATE facts SET superseded_by = NULL WHERE superseded_by IN "
+                         "(SELECT id FROM facts WHERE note_id = ?)", (nid,))
+            conn.execute("DELETE FROM facts WHERE note_id = ?", (nid,))
+            conn.execute("DELETE FROM tasks WHERE note_id = ?", (nid,))
             conn.execute("DELETE FROM notes WHERE id = ?", (nid,))
     return len(ids)
 
@@ -161,3 +167,26 @@ def stats(conn: sqlite3.Connection) -> dict:
         "topics": q("SELECT count(*) FROM topics WHERE notes_count > 0"),
         "chunks": q("SELECT count(*) FROM chunks"),
     }
+
+
+def link_message(conn: sqlite3.Connection, message_id: int, note_id: int) -> None:
+    """Remember that a bot message shows this note (replies to it are edit commands)."""
+    conn.execute("INSERT OR REPLACE INTO tg_messages(message_id, note_id) VALUES (?, ?)", (message_id, note_id))
+
+
+def note_for_message(conn: sqlite3.Connection, message_id: int) -> int | None:
+    row = conn.execute("SELECT note_id FROM tg_messages WHERE message_id = ?", (message_id,)).fetchone()
+    if row:
+        return row[0]
+    row = conn.execute("SELECT id FROM notes WHERE tg_reply_id = ?", (message_id,)).fetchone()
+    return row[0] if row else None
+
+
+def mark_question(conn: sqlite3.Connection, note_id: int) -> None:
+    """The user says a saved note is really a question: hide it from search until kept."""
+    with Tx(conn):
+        row = conn.execute("SELECT topic_id FROM notes WHERE id = ?", (note_id,)).fetchone()
+        conn.execute(f"UPDATE notes SET status = 'question', updated_at = {NOW} WHERE id = ?", (note_id,))
+        conn.execute("DELETE FROM notes_fts WHERE rowid = ?", (note_id,))
+        if row:
+            topics_db.recount(conn, row["topic_id"])

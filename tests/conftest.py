@@ -2,6 +2,7 @@ import hashlib
 import json
 import math
 import re
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -10,9 +11,18 @@ from bot.config import ROOT, Settings
 from bot.db.connection import connect
 from bot.deps import Deps
 from bot.llm.client import LLMClient, LLMError
-from bot.llm.schemas import NoteMarkup, TopicChoice
+from bot.llm.schemas import (EditIntent, EntityRef, Extraction, FactItem, NoteMarkup, TaskItem,
+                             TopicChoice)
 
 DIM = 64
+
+# keyword stem -> entity the fake model extracts
+ENTITY_RULES = [
+    (("кіа", "киа", "kia", "соул"), "Kia Soul", "car"),
+    (("сергей", "сергі", "сергію"), "Сергей", "person"),
+    (("научрук",), "Научрук", "person"),
+]
+TASK_MARKERS = ("спросить", "купить", "записаться", "записатися", "треба", "надо", "позвонить")
 
 # keyword stem -> topic name the fake model picks
 TOPIC_RULES = [
@@ -48,12 +58,66 @@ class FakeLLM(LLMClient):
         text = re.sub(r"^\[.*?\]\n", "", text)
         return re.sub(r"\b(ну|короче|эээ)\b,?\s*", "", text).strip()
 
+    @staticmethod
+    def _today(prompt: str) -> date:
+        return date.fromisoformat(re.search(r"Today: (\d{4}-\d{2}-\d{2})", prompt).group(1))
+
+    def _extract(self, prompt: str, original: str) -> Extraction:
+        text = original.lower()
+        today = self._today(prompt)
+        ents = [EntityRef(name=name, kind=kind) for keys, name, kind in ENTITY_RULES if any(k in text for k in keys)]
+        facts, tasks = [], []
+        is_task = any(m in text for m in TASK_MARKERS)
+        for e in ents:
+            if is_task:
+                break
+            replaces = None
+            if "теперь" in text:  # an update: replace the newest known fact about this entity
+                m = re.findall(rf"fact_id=(\d+) \[{re.escape(e.name)}\]", prompt)
+                replaces = int(m[0]) if m else None
+            facts.append(FactItem(entity=e.name, text=original.strip()[:200], replaces_fact_id=replaces))
+        if is_task:
+            due = None
+            if "пятниц" in text:
+                due = (today + timedelta(days=(4 - today.weekday()) % 7 or 7)).isoformat()
+            elif "завтра" in text:
+                due = (today + timedelta(days=1)).isoformat()
+            tasks.append(TaskItem(text=original.strip()[:150], due=due))
+        return Extraction(entities=ents, facts=facts, tasks=tasks)
+
+    def _edit(self, prompt: str) -> EditIntent:
+        original = prompt.split("The reply:\n", 1)[1].strip()
+        reply = original.lower()
+        topics = re.findall(r"id=(\d+): \S* ?(.+?) —", prompt)
+        if m := re.match(r"перенеси в (.+)", reply):
+            want = m.group(1)[:3]
+            hit = [int(i) for i, name in topics if name.lower().startswith(want)]
+            return EditIntent(intent="move_topic", topic_id=hit[0] if hit else None,
+                              new_topic_name=None if hit else m.group(1).title())
+        if m := re.match(r"назови (.+)", reply):
+            return EditIntent(intent="rename", title=original[len("назови "):].strip("«»\" "))
+        if m := re.match(r"объедини с заметкой про (.+)", reply):
+            return EditIntent(intent="merge_with", merge_query=m.group(1))
+        if m := re.match(r"тег (.+)", reply):
+            return EditIntent(intent="add_tag", tag=m.group(1))
+        if reply.startswith("удали"):
+            return EditIntent(intent="delete")
+        if "на пятницу" in reply:
+            today = self._today(prompt)
+            return EditIntent(intent="set_task_date",
+                              date=(today + timedelta(days=(4 - today.weekday()) % 7 or 7)).isoformat())
+        return EditIntent(intent="none")
+
     async def chat_json(self, model, messages, schema, **params):
         self.calls.append((model, messages))
         if self.fail_json > 0:
             self.fail_json -= 1
             raise LLMError("invalid NoteMarkup")
         prompt = messages[-1]["content"]
+        if schema is EditIntent:
+            return self._edit(prompt)
+        if schema is Extraction:
+            return self._extract(prompt, prompt.split("Clarification:\n", 1)[1])
         note = prompt.split("Note:\n", 1)[1].lower()
         topics = dict((name.strip().lower(), int(tid)) for tid, name in
                       re.findall(r"id=(\d+): \S* ?(.+?) —", prompt))
@@ -74,8 +138,9 @@ class FakeLLM(LLMClient):
                              new_topic_description=None if tid else target[1],
                              new_topic_emoji=None if tid else target[2], reason="test")
         words = re.findall(r"\w+", note)
+        x = self._extract(prompt, prompt.split("Note:\n", 1)[1])
         return NoteMarkup(title=" ".join(words[:4]) or "заметка", summary=note[:100] or "-", topic=choice,
-                          tags=[words[0] if words else "tag"],
+                          tags=[words[0] if words else "tag"], entities=x.entities, facts=x.facts, tasks=x.tasks,
                           is_question=note.strip().endswith("?") and any(q in note for q in self.question_markers))
 
     async def stream(self, model, messages, **params):
