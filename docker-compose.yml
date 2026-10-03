@@ -1,7 +1,39 @@
-# Stage 1: model engine only. The bot service is added in stage 2.
 name: notes-bot
 
 services:
+  bot:
+    build: .
+    image: notes-bot:latest
+    container_name: notes-bot
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    env_file: .env
+    environment:
+      LLM_URL: http://llm:8080
+      # nvidia-smi only (for /stats and logs/gpu.csv); no compute access
+      NVIDIA_DRIVER_CAPABILITIES: utility
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./backups:/app/backups
+      # Prompts are re-read on every call: edit bot/prompts/*.md without restarting
+      - ./bot/prompts:/app/bot/prompts:ro
+    depends_on:
+      - llm
+    mem_limit: ${BOT_MEM_LIMIT:-512m}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [utility]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   llm:
     image: ${LLM_IMAGE:-ghcr.io/mostlygeek/llama-swap:cuda}
     # Pascal fallback: LLM_IMAGE=notes-llm:pascal and docker compose build llm
