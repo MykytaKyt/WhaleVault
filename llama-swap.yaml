@@ -1,0 +1,60 @@
+# llama-swap config.
+# All values come from .env via llama-swap env macros (dollar sign + {env.NAME}).
+# Model keys (routine / answer / embed) must match *_MODEL_NAME in .env.
+# llama-swap runs with -watch-config: edits apply without restarting the container.
+
+healthCheckTimeout: ${env.LLM_HEALTH_TIMEOUT}
+logLevel: info
+
+macros:
+  server: /app/llama-server --host 127.0.0.1 --port ${PORT} --parallel 1 --metrics
+  # Common flags for GPU models: all layers in VRAM, flash attention, Qwen Jinja template
+  gpu: -ngl 99 --flash-attn on --jinja -t 4
+  # Qwen3.5 sampling for non-thinking mode; the bot overrides temperature per request
+  qwen-sampling: --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0
+
+models:
+  routine:
+    # Cleanup, tagging, facts. Thinking is disabled at the server level.
+    cmd: |
+      ${server} ${gpu} ${qwen-sampling}
+      -m /models/${env.ROUTINE_MODEL_FILE}
+      -c ${env.ROUTINE_CTX}
+      --chat-template-kwargs '{"enable_thinking":false}'
+    ttl: ${env.LLM_TTL_DAY}
+
+  answer:
+    # /ask, nightly cleanup, overviews. Thinking is off by default;
+    # the bot enables it per request (chat_template_kwargs) when ASK_THINKING=1.
+    cmd: |
+      ${server} ${gpu} ${qwen-sampling}
+      -m /models/${env.ANSWER_MODEL_FILE}
+      -c ${env.ANSWER_CTX}
+      --cache-type-k ${env.ANSWER_KV_TYPE} --cache-type-v ${env.ANSWER_KV_TYPE}
+      --chat-template-kwargs '{"enable_thinking":false}'
+    ttl: ${env.LLM_TTL_DAY}
+
+  embed:
+    # bge-m3, 1024 dimensions. CPU by default: the process doesn't see the GPU at all.
+    env:
+      - CUDA_VISIBLE_DEVICES=${env.EMBED_CUDA_VISIBLE}
+    cmd: |
+      ${server}
+      -m /models/${env.EMBED_MODEL_FILE}
+      --embedding --pooling cls
+      -c ${env.EMBED_CTX} -b ${env.EMBED_CTX} -ub ${env.EMBED_CTX}
+      -ngl ${env.EMBED_NGL} -t ${env.EMBED_THREADS}
+    ttl: ${env.EMBED_TTL}
+
+groups:
+  # At most one LLM in VRAM: 9B and 4B are never loaded together.
+  gpu:
+    swap: true
+    exclusive: false
+    members: [routine, answer]
+  # Embeddings run alongside the LLM and never unload it.
+  embeddings:
+    swap: false
+    exclusive: false
+    persistent: true
+    members: [embed]

@@ -1,0 +1,37 @@
+# Stage 1: model engine only. The bot service is added in stage 2.
+name: notes-bot
+
+services:
+  llm:
+    image: ${LLM_IMAGE:-ghcr.io/mostlygeek/llama-swap:cuda}
+    # Pascal fallback: LLM_IMAGE=notes-llm:pascal and docker compose build llm
+    build:
+      context: ./llm
+    container_name: notes-llm
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    env_file: .env
+    environment:
+      # JIT cache for PTX compiled to sm_61: without it every model load recompiles the kernels
+      CUDA_CACHE_PATH: /cache/cuda
+      CUDA_CACHE_MAXSIZE: "4294967296"
+    volumes:
+      - ./llama-swap.yaml:/app/config.yaml:ro
+      - ${MODELS_DIR:-./data/models}:/models:ro
+      - ./data/cache/cuda:/cache/cuda
+    ports:
+      # Not published externally: server localhost only. The bot uses the internal compose network.
+      - "127.0.0.1:${LLM_PORT:-9292}:8080"
+    mem_limit: ${LLM_MEM_LIMIT:-3g}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
