@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Server environment snapshot -> docs/environment.md. Run on the server from the repo root.
+# shellcheck source=scripts/lib.sh
 . "$(dirname "$0")/lib.sh"
 out="docs/environment.md"
 

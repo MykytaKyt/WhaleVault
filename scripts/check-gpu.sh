@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Checks the driver, NVIDIA Container Toolkit and the llama.cpp CUDA backend in the LLM image.
 # Exit code 0 = OK to bring up docker compose. No bot code is written until this passes.
+# shellcheck source=scripts/lib.sh
 . "$(dirname "$0")/lib.sh"
 load_env
 rc=0
