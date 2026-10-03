@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Ручная проверка llama-swap: /v1/chat/completions, JSON-схема, /v1/embeddings, замер токенов/с.
+"""Manual llama-swap check: /v1/chat/completions, JSON schema, /v1/embeddings, tokens/s benchmark.
 
-Только стандартная библиотека. Запускать через scripts/bench.sh (он сам найдёт python).
-Результат: markdown в stdout и в docs/bench/<дата>.md — переносится в docs/models.md.
+Standard library only. Run via scripts/bench.sh (it finds a python for you).
+Output: markdown to stdout and docs/bench/<date>.md, to be copied into docs/models.md.
+
+The sample texts are deliberately Russian/Ukrainian: that is the language mix of real notes.
 """
 import datetime as dt
 import json
@@ -59,7 +61,7 @@ def unload() -> None:
 
 def vram() -> str:
     if not shutil.which("nvidia-smi"):
-        return "н/д"
+        return "n/a"
     r = subprocess.run(
         ["nvidia-smi", "--query-gpu=memory.used,pstate,power.draw,temperature.gpu", "--format=csv,noheader"],
         capture_output=True, text=True,
@@ -69,12 +71,12 @@ def vram() -> str:
 
 def ram() -> str:
     if not shutil.which("docker"):
-        return "н/д"
+        return "n/a"
     r = subprocess.run(
         ["docker", "stats", "--no-stream", "--format", "{{.Name}} {{.MemUsage}}"],
         capture_output=True, text=True,
     )
-    return "; ".join(x for x in r.stdout.splitlines() if "notes" in x) or "н/д"
+    return "; ".join(x for x in r.stdout.splitlines() if "notes" in x) or "n/a"
 
 
 def chat(model: str, content: str, max_tokens: int, **extra) -> tuple[dict, float]:
@@ -88,7 +90,7 @@ def speed(data: dict) -> tuple[str, str, int]:
     pp = t.get("prompt_per_second")
     tg = t.get("predicted_per_second")
     n = (data.get("usage") or {}).get("completion_tokens", 0)
-    f = lambda x: f"{x:.1f}" if isinstance(x, (int, float)) else "н/д"
+    f = lambda x: f"{x:.1f}" if isinstance(x, (int, float)) else "n/a"
     return f(pp), f(tg), n
 
 
@@ -114,21 +116,21 @@ def bench_chat(model: str) -> None:
     unload()
     time.sleep(3)
     data, cold = chat(model, "Ответь одним словом: столица Украины?", 16)
-    out(f"- Холодный старт (загрузка в VRAM + короткий ответ): **{cold:.1f} с**")
-    out(f"- VRAM после загрузки: `{vram()}`")
-    out(f"- ОЗУ контейнеров: `{ram()}`")
+    out(f"- Cold start (load into VRAM + short answer): **{cold:.1f} s**")
+    out(f"- VRAM after load: `{vram()}`")
+    out(f"- Container RAM: `{ram()}`")
     data, wall = chat(model, LONG_PROMPT, 400)
     pp, tg, n = speed(data)
     text = data["choices"][0]["message"].get("content") or ""
-    out(f"- Прогретая модель: промпт **{pp} ток/с**, генерация **{tg} ток/с** ({n} токенов за {wall:.1f} с)")
-    out(f"- Время до первого токена (стрим, прогретая): **{ttft_stream(model, 'Привет! Как дела?'):.2f} с**")
+    out(f"- Warm model: prompt **{pp} tok/s**, generation **{tg} tok/s** ({n} tokens in {wall:.1f} s)")
+    out(f"- Time to first token (streaming, warm): **{ttft_stream(model, 'Привет! Как дела?'):.2f} s**")
     think = "<think>" in text or bool(data["choices"][0]["message"].get("reasoning_content"))
-    out(f"- Thinking в ответе: {'**ЕСТЬ** — проверить --chat-template-kwargs' if think else 'нет'}")
+    out(f"- Thinking in the answer: {'**PRESENT** - check --chat-template-kwargs' if think else 'none'}")
     out()
 
 
 def bench_schema() -> None:
-    out(f"### JSON-схема ({ROUTINE})")
+    out(f"### JSON schema ({ROUTINE})")
     out()
     schema = {
         "type": "object",
@@ -142,7 +144,7 @@ def bench_schema() -> None:
         },
         "required": ["title", "summary", "tags", "tasks"],
     }
-    prompt = ("Разметь заметку пользователя. Заголовок и резюме — на языке заметки.\n\nЗаметка:\n" + NOTE)
+    prompt = ("Tag the user's note. Write the title and summary in the note's language.\n\nNote:\n" + NOTE)
     data, wall = chat(ROUTINE, prompt, 400, temperature=0.1, response_format={
         "type": "json_schema", "json_schema": {"name": "note", "strict": True, "schema": schema}})
     raw = data["choices"][0]["message"].get("content") or ""
@@ -152,7 +154,7 @@ def bench_schema() -> None:
     except json.JSONDecodeError:
         obj, valid = None, False
     pp, tg, n = speed(data)
-    out(f"- Валидный JSON по схеме: **{'да' if valid else 'НЕТ'}**, {wall:.1f} с, генерация {tg} ток/с")
+    out(f"- Valid JSON per schema: **{'yes' if valid else 'NO'}**, {wall:.1f} s, generation {tg} tok/s")
     out("```json")
     out(json.dumps(obj, ensure_ascii=False, indent=2) if obj else raw[:1000])
     out("```")
@@ -160,12 +162,12 @@ def bench_schema() -> None:
 
 
 def bench_embed() -> None:
-    out(f"### Эмбеддинги ({EMBED})")
+    out(f"### Embeddings ({EMBED})")
     out()
     texts = [
-        "Каталізатор на Кіа Соул забитий, ремонт коштує 9 тисяч",       # укр
-        "У Kia Soul забит катализатор, ремонт стоит девять тысяч",     # рус, тот же смысл
-        "Научрук попросил переписать введение к статье до пятницы",    # рус, другое
+        "Каталізатор на Кіа Соул забитий, ремонт коштує 9 тисяч",       # Ukrainian
+        "У Kia Soul забит катализатор, ремонт стоит девять тысяч",     # Russian, same meaning
+        "Научрук попросил переписать введение к статье до пятницы",    # Russian, unrelated
     ]
     _, cold = post("/v1/embeddings", {"model": EMBED, "input": texts[:1]})
     t0 = time.monotonic()
@@ -177,10 +179,10 @@ def bench_embed() -> None:
         return sum(x * y for x, y in zip(a, b)) / (math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b)))
 
     dim = len(vecs[0])
-    out(f"- Размерность: **{dim}** ({'ok' if dim == EMBED_DIM else 'НЕ совпадает с EMBED_DIM'})")
-    out(f"- Первый запрос (с загрузкой): {cold:.1f} с; 3 текста прогретой моделью: {warm * 1000:.0f} мс")
-    out(f"- cos(укр, рус — один смысл) = **{cos(vecs[0], vecs[1]):.3f}**, cos(укр, другое) = **{cos(vecs[0], vecs[2]):.3f}**")
-    out(f"- VRAM при работающих эмбеддингах: `{vram()}` (при EMBED_CUDA_VISIBLE=-1 эмбеддинги VRAM не занимают)")
+    out(f"- Dimension: **{dim}** ({'ok' if dim == EMBED_DIM else 'does NOT match EMBED_DIM'})")
+    out(f"- First request (incl. load): {cold:.1f} s; 3 texts on the warm model: {warm * 1000:.0f} ms")
+    out(f"- cos(uk, ru - same meaning) = **{cos(vecs[0], vecs[1]):.3f}**, cos(uk, unrelated) = **{cos(vecs[0], vecs[2]):.3f}**")
+    out(f"- VRAM with embeddings running: `{vram()}` (with EMBED_CUDA_VISIBLE=-1 embeddings use no VRAM)")
     out()
 
 
@@ -188,11 +190,11 @@ def main() -> int:
     try:
         urllib.request.urlopen(BASE + "/v1/models", timeout=10).read()
     except Exception as e:  # noqa: BLE001
-        print(f"llama-swap недоступен на {BASE}: {e}", file=sys.stderr)
+        print(f"llama-swap is not reachable at {BASE}: {e}", file=sys.stderr)
         return 1
-    out(f"## Замер {dt.datetime.now():%Y-%m-%d %H:%M}")
+    out(f"## Benchmark {dt.datetime.now():%Y-%m-%d %H:%M}")
     out()
-    out(f"- VRAM до начала: `{vram()}`")
+    out(f"- VRAM before start: `{vram()}`")
     out()
     bench_chat(ROUTINE)
     bench_schema()
@@ -200,12 +202,12 @@ def main() -> int:
     bench_embed()
     unload()
     time.sleep(5)
-    out(f"- После /api/models/unload: VRAM `{vram()}`, ОЗУ `{ram()}`")
+    out(f"- After /api/models/unload: VRAM `{vram()}`, RAM `{ram()}`")
     os.makedirs("docs/bench", exist_ok=True)
     path = f"docs/bench/{dt.date.today():%Y-%m-%d}.md"
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
-    print(f"\nЗаписано в {path}", file=sys.stderr)
+    print(f"\nWritten to {path}", file=sys.stderr)
     return 0
 
 

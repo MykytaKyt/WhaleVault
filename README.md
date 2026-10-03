@@ -1,11 +1,11 @@
-# WhaleVault — бот умных заметок на локальной модели
+# WhaleVault: a smart-notes bot on a local model
 
-Telegram-бот «вторая память»: принимает текст, голосовые, ссылки, фото и раскладывает их по темам
-с помощью локальной модели (llama.cpp + llama-swap на Tesla P4). Веб-интерфейс в стиле Notion — для
-чтения и поиска.
+A "second memory" Telegram bot: it takes text, voice messages, links and photos and sorts them into
+topics with a local model (llama.cpp + llama-swap on a Tesla P4). A Notion-style web UI is for
+reading and search.
 
-Состояние: **этап 1 — фундамент** (движок моделей, скрипты проверки и замеров).
+Status: **stage 1, foundation** (model engine, check and benchmark scripts).
 
-- Запуск и обслуживание — [docs/runbook.md](docs/runbook.md)
-- Выбор моделей и замеры — [docs/models.md](docs/models.md)
-- Окружение сервера — [docs/environment.md](docs/environment.md)
+- Setup and operations: [docs/runbook.md](docs/runbook.md)
+- Model choices and benchmarks: [docs/models.md](docs/models.md)
+- Server environment: [docs/environment.md](docs/environment.md)

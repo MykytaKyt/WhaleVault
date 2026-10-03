@@ -1,58 +1,58 @@
-# Модели
+# Models
 
-Все имена, файлы, контексты и порты — в `.env`; параметры запуска — в `llama-swap.yaml`.
-Смена модели = правка `.env` + `./scripts/download-models.sh` + `docker compose up -d llm`.
+All names, files, context sizes and ports live in `.env`; launch flags live in `llama-swap.yaml`.
+Switching a model = edit `.env` + `./scripts/download-models.sh` + `docker compose up -d llm`.
 
-## Выбор
+## Choices
 
-| Роль | В ТЗ | Взято | Файл | Размер (оценка) |
+| Role | Spec | Chosen | Source | Size (est.) |
 |---|---|---|---|---|
-| Рутина: очистка, разметка, факты | Qwen 3.5 3.8B Q4_K_M | **Qwen3.5-4B** Q4_K_M | `unsloth/Qwen3.5-4B-GGUF` | ~2,7 ГБ |
-| Ответы: /ask, уборка, обзоры | Qwen 3.5 9B Q4_K_M | **Qwen3.5-9B** Q4_K_M | `unsloth/Qwen3.5-9B-GGUF` | ~5,7 ГБ |
-| Черновик для speculative decoding | Qwen 3.5 0.8B | **Qwen3.5-0.8B** Q4_K_M (этап 7) | `unsloth/Qwen3.5-0.8B-GGUF` | ~0,6 ГБ |
-| Эмбеддинги | bge-m3 | **bge-m3** Q8_0, 1024 изм. | `ggml-org/bge-m3-Q8_0-GGUF` | ~0,6 ГБ |
+| Routine: cleanup, tagging, facts | Qwen 3.5 3.8B Q4_K_M | **Qwen3.5-4B** Q4_K_M | `unsloth/Qwen3.5-4B-GGUF` | ~2.7 GB |
+| Answers: /ask, cleanup, overviews | Qwen 3.5 9B Q4_K_M | **Qwen3.5-9B** Q4_K_M | `unsloth/Qwen3.5-9B-GGUF` | ~5.7 GB |
+| Draft for speculative decoding | Qwen 3.5 0.8B | **Qwen3.5-0.8B** Q4_K_M (stage 7) | `unsloth/Qwen3.5-0.8B-GGUF` | ~0.6 GB |
+| Embeddings | bge-m3 | **bge-m3** Q8_0, 1024 dims | `ggml-org/bge-m3-Q8_0-GGUF` | ~0.6 GB |
 
-Итого на диске ~9,6 ГБ (лимит ТЗ — 15 ГБ).
+About 9.6 GB on disk in total (spec limit: 15 GB).
 
-Почему так:
+Rationale:
 
-- **3.8B → 4B.** В серии Qwen3.5 нет модели 3.8B; мелкие модели серии — 0.8B, 2B, 4B, 9B.
-  Ближайшая по размеру — 4B. Если имена файлов на Hugging Face отличаются, `download-models.sh`
-  покажет список файлов репозитория; исправить `.env` и эту таблицу.
-- **Qwen3.5 мультимодальная**, но проектор зрения (`mmproj`) не грузим — модель работает как текстовая
-  и не занимает лишнюю VRAM. Фото по ТЗ обрабатывает tesseract.
-- **Thinking.** У Qwen3.5 он включён по умолчанию. В `llama-swap.yaml` для обеих моделей стоит
-  `--chat-template-kwargs '{"enable_thinking":false}'`; для /ask бот включает его в самом запросе,
-  если `ASK_THINKING=1`.
-- **Эмбеддинги на CPU.** Процесс запускается с `CUDA_VISIBLE_DEVICES=-1`: даже CUDA-сборка llama.cpp
-  не создаёт контекст на видеокарте, поэтому эмбеддинги не держат VRAM и не мешают P4 уходить в простой.
-- **VRAM.** 9B Q4_K_M ≈ 5,7 ГБ весов + KV-кэш. У Qwen3.5 гибридная архитектура: KV нужен только слоям
-  полного внимания, так что 12k контекста в q8_0 — это сотни МБ. Запас под CUDA-буферы есть, 8 ГБ хватает.
+- **3.8B → 4B.** The Qwen3.5 series has no 3.8B model; its small models are 0.8B, 2B, 4B and 9B.
+  4B is the closest. If the file names on Hugging Face differ, `download-models.sh` lists the
+  repo's files; fix `.env` and this table.
+- **Qwen3.5 is multimodal**, but the vision projector (`mmproj`) is not loaded, so the model runs
+  text-only and takes no extra VRAM. Per the spec, photos go through tesseract.
+- **Thinking.** Qwen3.5 thinks by default. `llama-swap.yaml` sets
+  `--chat-template-kwargs '{"enable_thinking":false}'` for both models; for /ask the bot enables it
+  in the request itself when `ASK_THINKING=1`.
+- **Embeddings on CPU.** The process starts with `CUDA_VISIBLE_DEVICES=-1`, so even the CUDA build of
+  llama.cpp creates no context on the GPU: embeddings hold no VRAM and don't keep the P4 out of idle.
+- **VRAM.** 9B Q4_K_M ≈ 5.7 GB of weights + KV cache. Qwen3.5 is a hybrid architecture: only the
+  full-attention layers need KV, so 12k context in q8_0 is a few hundred MB. 8 GB is enough.
 
-## Движок и Pascal
+## Engine and Pascal
 
-- Готовый образ `ghcr.io/mostlygeek/llama-swap:cuda` собран на базе `ggml-org/llama.cpp:server-cuda`
-  (CUDA 12.8). Для CUDA ниже 13 llama.cpp собирает `61-virtual` — то есть PTX, который драйвер
-  компилирует под P4 при первой загрузке. Отсюда:
-  - нужен драйвер **≥ 570** (CUDA 12.8);
-  - первая загрузка модели может идти минуты. Результат кэшируется в `data/cache/cuda`
-    (`CUDA_CACHE_PATH`), дальше загрузка быстрая.
-- Образы `unified-cuda13` **не подходят**: в CUDA 13 убрана поддержка Pascal.
-- Запасной вариант — `llm/Dockerfile`: llama.cpp, собранный под `sm_61` на CUDA 12.4 (драйвер ≥ 550),
-  плюс бинарник llama-swap. Включается через `LLM_IMAGE=notes-llm:pascal`.
+- The prebuilt `ghcr.io/mostlygeek/llama-swap:cuda` image is based on `ggml-org/llama.cpp:server-cuda`
+  (CUDA 12.8). For CUDA below 13, llama.cpp builds `61-virtual`, i.e. PTX that the driver compiles
+  for the P4 on first load. Therefore:
+  - the driver must be **≥ 570** (CUDA 12.8);
+  - the first model load may take minutes. The result is cached in `data/cache/cuda`
+    (`CUDA_CACHE_PATH`), later loads are fast.
+- `unified-cuda13` images **won't work**: CUDA 13 dropped Pascal.
+- Fallback: `llm/Dockerfile` builds llama.cpp for `sm_61` on CUDA 12.4 (driver ≥ 550) plus the
+  llama-swap binary. Enable with `LLM_IMAGE=notes-llm:pascal`.
 
-## Риски, которые надо проверить на железе
+## Risks to verify on the hardware
 
-- **Speculative decoding (этап 7).** Qwen3.5 — гибридная модель с рекуррентными слоями (Gated DeltaNet).
-  Поддержка черновика для таких моделей в llama.cpp появилась позже, чем для обычных трансформеров, и
-  может не дать ускорения. Замерить на этапе 7; если выигрыша нет, сообщить и не включать.
-- **Скорость.** Цифры из ТЗ (~35 ток/с для 4B, ~20 ток/с для 9B) — оценка. Реальные значения — ниже.
+- **Speculative decoding (stage 7).** Qwen3.5 is a hybrid model with recurrent layers (Gated DeltaNet).
+  llama.cpp got draft-model support for such models later than for plain transformers, and it may
+  bring no speedup. Measure in stage 7; if there is no gain, report it and leave it off.
+- **Speed.** The spec's figures (~35 tok/s for 4B, ~20 tok/s for 9B) are estimates. Real numbers go below.
 
-## Замеры
+## Measurements
 
-Заполняется по результатам `./scripts/bench.sh` (полный вывод лежит в `docs/bench/<дата>.md`).
+Filled in from `./scripts/bench.sh` (full output in `docs/bench/<date>.md`).
 
-| Модель | Холодный старт, с | Промпт, ток/с | Генерация, ток/с | До первого токена, с | VRAM, МБ |
+| Model | Cold start, s | Prompt, tok/s | Generation, tok/s | Time to first token, s | VRAM, MB |
 |---|---|---|---|---|---|
 | routine (4B) | | | | | |
 | answer (9B) | | | | | |

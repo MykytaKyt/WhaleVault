@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Скачать GGUF по списку из .env в $MODELS_DIR. Повторный запуск докачивает/пропускает готовые.
+# Download the GGUF files listed in .env into $MODELS_DIR. Re-running resumes/skips finished files.
 . "$(dirname "$0")/lib.sh"
 load_env
 dir="${MODELS_DIR:-./data/models}"; mkdir -p "$dir"
@@ -8,12 +8,12 @@ auth=(); [ -n "${HF_TOKEN:-}" ] && auth=(-H "Authorization: Bearer $HF_TOKEN")
 
 get() {  # repo file
   local repo="$1" file="$2" url="$HF/$1/resolve/main/$2"
-  if [ -s "$dir/$file" ] && [ ! -f "$dir/$file.part" ]; then ok "$file уже есть ($(du -h "$dir/$file" | cut -f1))"; return; fi
+  if [ -s "$dir/$file" ] && [ ! -f "$dir/$file.part" ]; then ok "$file already present ($(du -h "$dir/$file" | cut -f1))"; return; fi
   code=$(curl -sIL -o /dev/null -w '%{http_code}' "${auth[@]}" "$url")
   if [ "$code" != "200" ]; then
-    fail "$repo/$file: HTTP $code. Файлы в репозитории:"
+    fail "$repo/$file: HTTP $code. Files in the repo:"
     curl -s "${auth[@]}" "$HF/api/models/$repo" | grep -o '"rfilename":"[^"]*\.gguf"' | cut -d'"' -f4 | sed 's/^/   /'
-    echo "   → поправить *_MODEL_FILE / *_MODEL_REPO в .env и записать замену в docs/models.md"
+    echo "   -> fix *_MODEL_FILE / *_MODEL_REPO in .env and record the substitution in docs/models.md"
     return 1
   fi
   echo "↓ $repo/$file"
@@ -27,5 +27,5 @@ get "$ANSWER_MODEL_REPO"  "$ANSWER_MODEL_FILE"  || rc=1
 get "$EMBED_MODEL_REPO"   "$EMBED_MODEL_FILE"   || rc=1
 [ "${DOWNLOAD_DRAFT:-0}" = "1" ] && { get "$DRAFT_MODEL_REPO" "$DRAFT_MODEL_FILE" || rc=1; }
 chmod -R a+rX "$dir"
-echo; du -ch "$dir"/*.gguf 2>/dev/null | tail -n1 | sed 's/^/Всего моделей: /'
+echo; du -ch "$dir"/*.gguf 2>/dev/null | tail -n1 | sed 's/^/Total model size: /'
 exit $rc

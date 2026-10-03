@@ -1,13 +1,13 @@
-# Запасной образ llama-swap + llama.cpp, собранный строго под Tesla P4 (Pascal, sm_61) на CUDA 12.4.
-# Нужен, если готовый образ ghcr.io/mostlygeek/llama-swap:cuda не видит GPU
-# (например, драйвер < 570 не тянет CUDA 12.8). Сборка на i5-8500T занимает ~20–40 минут.
-#   В .env: LLM_IMAGE=notes-llm:pascal
+# Fallback llama-swap + llama.cpp image built specifically for the Tesla P4 (Pascal, sm_61) on CUDA 12.4.
+# Needed if the prebuilt ghcr.io/mostlygeek/llama-swap:cuda image can't see the GPU
+# (e.g. driver < 570 can't run CUDA 12.8). Building on an i5-8500T takes ~20–40 minutes.
+#   In .env: LLM_IMAGE=notes-llm:pascal
 #   docker compose build llm && docker compose up -d llm
 ARG CUDA_VERSION=12.4.1
 ARG UBUNTU_VERSION=22.04
 
 FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} AS build
-# Тег/коммит llama.cpp (b-номер релиза). master — последний; лучше зафиксировать проверенный.
+# llama.cpp tag/commit (b-number release). master = latest; better to pin a tested one.
 ARG LLAMA_CPP_REF=master
 RUN apt-get update && apt-get install -y --no-install-recommends git cmake build-essential ca-certificates libcurl4-openssl-dev \
     && rm -rf /var/lib/apt/lists/*

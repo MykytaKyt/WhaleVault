@@ -1,7 +1,7 @@
-# Окружение сервера
+# Server environment
 
-Ещё не снято. На сервере, из корня репозитория:
+Not captured yet. On the server, from the repo root:
 
 ```bash
-./scripts/snapshot-env.sh   # перезапишет этот файл
+./scripts/snapshot-env.sh   # overwrites this file
 ```
