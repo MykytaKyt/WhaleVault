@@ -1,0 +1,60 @@
+# Конфиг llama-swap.
+# Все значения — из .env через синтаксис env-макросов llama-swap (знак доллара, {env.ИМЯ})
+# Ключи моделей (routine / answer / embed) должны совпадать с *_MODEL_NAME в .env.
+# llama-swap запущен с -watch-config: правка файла применяется без перезапуска контейнера.
+
+healthCheckTimeout: ${env.LLM_HEALTH_TIMEOUT}
+logLevel: info
+
+macros:
+  server: /app/llama-server --host 127.0.0.1 --port ${PORT} --parallel 1 --metrics
+  # Общие параметры для моделей на GPU: все слои в VRAM, flash attention, Jinja-шаблон Qwen
+  gpu: -ngl 99 --flash-attn on --jinja -t 4
+  # Сэмплинг Qwen3.5 для режима без thinking; бот переопределяет temperature в запросе
+  qwen-sampling: --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0
+
+models:
+  routine:
+    # Очистка, разметка, факты. Thinking выключен на уровне сервера.
+    cmd: |
+      ${server} ${gpu} ${qwen-sampling}
+      -m /models/${env.ROUTINE_MODEL_FILE}
+      -c ${env.ROUTINE_CTX}
+      --chat-template-kwargs '{"enable_thinking":false}'
+    ttl: ${env.LLM_TTL_DAY}
+
+  answer:
+    # /ask, ночная уборка, обзоры. Thinking по умолчанию выключен,
+    # бот включает его в запросе (chat_template_kwargs), если ASK_THINKING=1.
+    cmd: |
+      ${server} ${gpu} ${qwen-sampling}
+      -m /models/${env.ANSWER_MODEL_FILE}
+      -c ${env.ANSWER_CTX}
+      --cache-type-k ${env.ANSWER_KV_TYPE} --cache-type-v ${env.ANSWER_KV_TYPE}
+      --chat-template-kwargs '{"enable_thinking":false}'
+    ttl: ${env.LLM_TTL_DAY}
+
+  embed:
+    # bge-m3, 1024 измерения. По умолчанию на CPU: процесс не видит GPU вообще.
+    env:
+      - CUDA_VISIBLE_DEVICES=${env.EMBED_CUDA_VISIBLE}
+    cmd: |
+      ${server}
+      -m /models/${env.EMBED_MODEL_FILE}
+      --embedding --pooling cls
+      -c ${env.EMBED_CTX} -b ${env.EMBED_CTX} -ub ${env.EMBED_CTX}
+      -ngl ${env.EMBED_NGL} -t ${env.EMBED_THREADS}
+    ttl: ${env.EMBED_TTL}
+
+groups:
+  # В VRAM живёт не больше одной LLM: 9B и 4B никогда не загружены вместе.
+  gpu:
+    swap: true
+    exclusive: false
+    members: [routine, answer]
+  # Эмбеддинги живут параллельно с LLM и не выгружают её.
+  embeddings:
+    swap: false
+    exclusive: false
+    persistent: true
+    members: [embed]
