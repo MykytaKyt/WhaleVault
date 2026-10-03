@@ -1,0 +1,17 @@
+"""Callback-data factories for inline buttons (each fits Telegram's 64-byte limit)."""
+from aiogram.filters.callback_data import CallbackData
+
+
+class NoteCB(CallbackData, prefix="n"):
+    # view | wrong | delete | restore | keep (save a question as a note) | retry | raw | back
+    action: str
+    id: int
+
+
+class MoveCB(CallbackData, prefix="mv"):
+    note_id: int
+    topic_id: int  # 0 = create a new topic
+
+
+class TopicCB(CallbackData, prefix="t"):
+    id: int  # 0 = list of topics
