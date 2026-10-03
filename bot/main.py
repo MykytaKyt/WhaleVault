@@ -16,11 +16,12 @@ from .config import Settings, get_settings
 from .db import notes as notes_db
 from .db.connection import connect
 from .deps import Deps
-from .handlers import ask, commands, notes
+from .handlers import ask, commands, entities, notes, tasks
 from .handlers.access import AllowedUserMiddleware
 from .jobs.backup import backup
 from .jobs.gpu import gpu_job
 from .jobs.idle import night_unload_job
+from .jobs.reminders import remind_job
 from .llm.client import LLMClient
 from .pipeline.worker import Worker, reembed_dirty
 
@@ -75,6 +76,11 @@ def schedule_jobs(s: Settings, deps: Deps, bot: Bot) -> AsyncIOScheduler:
     sched.add_job(night_unload_job, "interval", seconds=30,
                   args=[deps.llm, s.llm_day_start, s.llm_day_end, s.llm_ttl_night, deps.gpu_lock])
     sched.add_job(reembed_dirty, "interval", minutes=10, args=[deps])
+
+    async def send(text, kb=None):
+        await bot.send_message(s.allowed_user_id, text, reply_markup=kb)
+
+    sched.add_job(remind_job, CronTrigger.from_crontab(s.remind_cron, timezone=s.tz), args=[deps, send])
     sched.add_job(backup_job, CronTrigger.from_crontab(s.backup_cron, timezone=s.tz))
     sched.add_job(purge_job, CronTrigger(hour=4, minute=50, timezone=s.tz))
     return sched
@@ -90,7 +96,7 @@ async def main() -> None:
     bot = Bot(s.telegram_token, default=DefaultBotProperties(parse_mode="HTML", link_preview_is_disabled=True))
     dp = Dispatcher(storage=MemoryStorage())
     dp.update.outer_middleware(AllowedUserMiddleware(s.allowed_user_id))
-    dp.include_routers(commands.router, ask.router, notes.router)
+    dp.include_routers(commands.router, ask.router, entities.router, tasks.router, notes.router)
 
     on_done, on_failed = notes.make_worker_callbacks(bot, deps)
     worker = Worker(deps, on_done=on_done, on_failed=on_failed)
@@ -100,6 +106,8 @@ async def main() -> None:
         BotCommand(command="ask", description="Спросить по заметкам"),
         BotCommand(command="find", description="Поиск"),
         BotCommand(command="topics", description="Темы"),
+        BotCommand(command="entities", description="Люди, машины, проекты"),
+        BotCommand(command="todo", description="Задачи"),
         BotCommand(command="inbox", description="Не удалось разобрать"),
         BotCommand(command="stats", description="Статистика"),
     ])

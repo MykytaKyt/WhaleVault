@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Checks the llama-swap API and benchmarks the models. Output -> docs/bench/<date>.md
+# shellcheck source=scripts/lib.sh
 . "$(dirname "$0")/lib.sh"
 load_env
 if command -v python3 >/dev/null; then

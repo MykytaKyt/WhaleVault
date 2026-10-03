@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    # Same base as the bot image: its SQLite can load sqlite-vec
+    container: python:3.12-slim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: pip install --no-cache-dir -r requirements-dev.txt
+      - name: Pytest
+        run: python -m pytest -q
+
+  checks:
+    name: Scripts and config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Shell syntax
+        run: bash -n scripts/*.sh
+      - name: ShellCheck
+        run: shellcheck -S warning scripts/*.sh
+      - name: Python syntax of scripts
+        run: python3 -m py_compile scripts/bench.py
+      - name: docker compose config
+        run: cp .env.example .env && docker compose config -q
+      - name: llama-swap.yaml renders with .env.example
+        run: |
+          pip install --quiet pyyaml
+          python3 - <<'PY'
+          import re, yaml
+          env = {}
+          for line in open(".env.example", encoding="utf-8"):
+              line = line.strip()
+              if line and not line.startswith("#"):
+                  k, v = line.split("=", 1)
+                  env[k] = v.strip('"')
+          text = open("llama-swap.yaml", encoding="utf-8").read()
+          missing = sorted(set(re.findall(r"\$\{env\.(\w+)\}", text)) - env.keys())
+          assert not missing, f"llama-swap.yaml uses variables missing from .env.example: {missing}"
+          cfg = yaml.safe_load(re.sub(r"\$\{env\.(\w+)\}", lambda m: env[m.group(1)], text))
+          members = {m for g in cfg["groups"].values() for m in g["members"]}
+          assert members == set(cfg["models"]), "every model must be in exactly one group"
+          print("ok:", ", ".join(cfg["models"]))
+          PY
+
+  docker:
+    name: Bot image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker build -t notes-bot:ci .
+      - name: Smoke test
+        # Migrations apply and sqlite-vec loads inside the real image
+        run: |
+          docker run --rm notes-bot:ci python -c "
+          from pathlib import Path
+          from bot.db.connection import connect
+          c = connect(':memory:', Path('migrations'), 1024)
+          print('vec', c.execute('select vec_version()').fetchone()[0])
+          print('tables', len(c.execute('select name from sqlite_master').fetchall()))
+          "

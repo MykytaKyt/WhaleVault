@@ -1,6 +1,7 @@
+# shellcheck shell=bash
 # Shared helpers for scripts. Source with: . "$(dirname "$0")/lib.sh"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT"
+cd "$ROOT" || exit 1
 
 ok()   { printf '\033[32m[ OK ]\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m[WARN]\033[0m %s\n' "$*"; }
@@ -10,5 +11,8 @@ fail() { printf '\033[31m[FAIL]\033[0m %s\n' "$*"; }
 load_env() {
   local f=".env"
   [ -f "$f" ] || { warn ".env not found, using values from .env.example"; f=".env.example"; }
-  set -a; . "./$f"; set +a
+  set -a
+  # shellcheck disable=SC1090  # .env or .env.example, chosen at runtime
+  . "./$f"
+  set +a
 }

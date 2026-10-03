@@ -2,6 +2,8 @@
 import sqlite3
 from dataclasses import dataclass
 
+from ..clock import today_label
+from ..db import entities as entities_db
 from ..db import topics as topics_db
 from ..deps import Deps
 from ..llm.prompts import render
@@ -40,8 +42,9 @@ def feedback_block(conn: sqlite3.Connection, limit: int) -> str:
 async def classify(deps: Deps, text: str) -> NoteMarkup:
     s = deps.settings
     messages = render(s.prompts_dir, "classify", text=text, topics=topics_block(deps.conn),
-                      feedback=feedback_block(deps.conn, s.feedback_examples))
-    return await deps.llm.chat_json(deps.llm.routine, messages, NoteMarkup, max_tokens=600)
+                      feedback=feedback_block(deps.conn, s.feedback_examples), today=today_label(s.tz),
+                      entities=entities_db.known_block(deps.conn, text))
+    return await deps.llm.chat_json(deps.llm.routine, messages, NoteMarkup, max_tokens=1200)
 
 
 def resolve_topic(conn: sqlite3.Connection, markup: NoteMarkup) -> tuple[int, bool]:

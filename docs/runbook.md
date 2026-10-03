@@ -107,4 +107,7 @@ Moving to another server: copy the whole project folder (`data/` included) and r
 | 0 MB VRAM after 10 min idle | `nvidia-smi --query-gpu=memory.used --format=csv` |
 | RAM ≤ 1.5 GB idle, ≤ 4 GB with 9B | `docker stats --no-stream` |
 | Restart keeps notes; restore works | `docker compose down && docker compose up -d`; restore once as above |
+| **Stage 3:** facts and contradictions | Send «катализатор на Kia Soul: ремонт 9 тысяч», later «теперь ремонт 12 тысяч по Kia Soul»; `/entities` → Kia Soul shows the old fact struck through |
+| Tasks and reminders | «спросить у Сергея контакты мастера в пятницу» → task with Friday's date in the report and in `/todo`; a reminder arrives at 09:00 on Thursday and Friday |
+| Edits by reply | Reply to a note report: «перенеси в …», «назови …», «тег …», «это на пятницу», «объедини с заметкой про …» (asks to confirm), «удали», or any extra detail (appended to the note) |
 | Tests green | `docker compose run --rm --no-deps --user 0 -v ./tests:/app/tests -v ./pytest.ini:/app/pytest.ini bot sh -c "pip install -q pytest pytest-asyncio && python -m pytest -q -p no:cacheprovider tests"` |

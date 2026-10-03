@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Download the GGUF files listed in .env into $MODELS_DIR. Re-running resumes/skips finished files.
+# shellcheck source=scripts/lib.sh
 . "$(dirname "$0")/lib.sh"
 load_env
 dir="${MODELS_DIR:-./data/models}"; mkdir -p "$dir"

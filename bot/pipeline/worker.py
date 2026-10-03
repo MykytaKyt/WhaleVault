@@ -12,6 +12,7 @@ from ..llm.schemas import NoteMarkup
 from .classify import classify, resolve_topic
 from .clean import clean
 from .embed import EmbedResult, embed_note
+from .extract import Extracted, apply as apply_extraction
 from .prepare import prepare
 
 log = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ class NoteResult:
     new_topic: bool
     is_question: bool
     embed: EmbedResult = field(default_factory=lambda: EmbedResult([], []))
+    extracted: Extracted = field(default_factory=Extracted)
 
 
 async def process_note(deps: Deps, note_id: int) -> NoteResult | None:
@@ -51,6 +53,7 @@ async def process_note(deps: Deps, note_id: int) -> NoteResult | None:
                           tags=markup.tags, status=status)
     result = NoteResult(note_id, markup, topic_id, new_topic, markup.is_question)
     if status == "done":
+        result.extracted = apply_extraction(conn, note_id, markup.entities, markup.facts, markup.tasks, replace=True)
         try:
             result.embed = await embed_note(deps, note_id)
         except LLMError as e:
@@ -75,7 +78,7 @@ async def reembed_dirty(deps: Deps, limit: int = 20) -> int:
 
 
 async def finish_question_as_note(deps: Deps, note_id: int) -> EmbedResult:
-    """The user chose to keep a question as a note."""
+    """The user chose to keep a question as a note. Facts/tasks of a question are not extracted."""
     notes_db.set_status(deps.conn, note_id, "done")
     note = notes_db.get_note(deps.conn, note_id)
     notes_db.sync_fts(deps.conn, note_id)
