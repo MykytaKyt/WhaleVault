@@ -50,10 +50,26 @@ Rationale:
 
 ## Measurements
 
-Filled in from `./scripts/bench.sh` (full output in `docs/bench/<date>.md`).
+2026-10-05, ZimaOS, Tesla P4, driver 580.105.08, prebuilt `ghcr.io/mostlygeek/llama-swap:cuda`
+(full output: [bench/2026-10-05.md](bench/2026-10-05.md)).
 
 | Model | Cold start, s | Prompt, tok/s | Generation, tok/s | Time to first token, s | VRAM, MB |
 |---|---|---|---|---|---|
-| routine (4B) | | | | | |
-| answer (9B) | | | | | |
-| embed (bge-m3, CPU) | | — | — | — | 0 |
+| routine (Qwen3.5-4B Q4_K_M) | 40.2* | 359 | 35.7 | 0.18 | 3107 |
+| answer (Qwen3.5-9B Q4_K_M, 12k, KV q8_0) | 15.5 | 206 | 19.7 | 0.24 | 5357 |
+| embed (bge-m3 Q8_0, CPU) | 3.4 | — | — | — | 0 |
+
+\* The very first model load ever: includes JIT compilation of PTX for sm_61, cached in `data/cache/cuda`.
+The 9B, loaded second, took 15.5 s.
+
+Findings:
+
+- **Pascal works with the prebuilt image.** Driver 580 runs the CUDA 12.8 image; the fallback build is not needed.
+- **Speed matches the spec** (~35 tok/s for routine, ~20 tok/s for answer). JSON-schema output is valid at 34 tok/s.
+- **Idle power.** After unload the card returns to P8 at 7–8 W with 0 MiB used, so `nvidia-pstated` is not needed.
+- **Embeddings** separate meaning across Russian and Ukrainian well: 0.85 for the same sentence in both
+  languages vs 0.35 for an unrelated one; the 0.92 duplicate threshold is safely above cross-topic noise.
+- **RAM.** `notes-llm` reports 2.5–2.7 GiB of its 3 GiB limit with a model loaded and 0.9 GiB after unload.
+  Most of it is page cache of the GGUF files (reclaimable, not process memory), but it sits close to the
+  limit. To check on the server: `--no-mmap` on the GPU models in `llama-swap.yaml` should cut it, since
+  the weights live in VRAM anyway.
