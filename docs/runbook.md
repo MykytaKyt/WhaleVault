@@ -2,7 +2,30 @@
 
 The project lives in one folder (on ZimaOS `/DATA/AppData/notes-bot` is convenient). All state is in `data/`.
 
-## First launch (stage 1)
+## Install with one command (recommended)
+
+On the server over SSH (ZimaOS: enable SSH in the ZimaOS settings, log in with the user created at setup):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MykytaKyt/WhaleVault/main/scripts/install.sh | sudo bash
+```
+
+`scripts/install.sh`:
+
+1. checks Docker and `docker compose`;
+2. clones the repo into `/DATA/AppData/notes-bot` (only `/DATA` survives ZimaOS updates; elsewhere
+   `~/notes-bot`, or set `NOTES_DIR`). ZimaOS has no git, so git runs in a throwaway `alpine/git` container;
+3. creates `.env`, asks for `TELEGRAM_TOKEN` and `ALLOWED_USER_ID`, sets `PUID`/`PGID` to the folder owner;
+4. writes `docs/environment.md` and runs `check-gpu.sh`; if only the prebuilt llama.cpp image can't see
+   the P4, offers to build `llm/Dockerfile` (20–40 min);
+5. downloads the models and runs `docker compose up -d --build`, then waits for "bot started".
+
+Re-running it updates the code and restarts the bot; `.env`, `data/` and `backups/` stay as they are.
+
+On ZimaOS, manage the `notes-bot` and `notes-llm` containers over SSH with `docker compose`, not from
+the ZimaOS dashboard: editing them there can recreate them without the GPU, memory limits or volumes.
+
+## First launch by hand (stage 1)
 
 ```bash
 git clone <repo> /DATA/AppData/notes-bot && cd /DATA/AppData/notes-bot
@@ -15,7 +38,7 @@ docker compose logs -f llm      # wait until llama-swap listens on :8080
 ./scripts/bench.sh              # API check and benchmark -> docs/bench/<date>.md
 ```
 
-If `check-gpu.sh` reports that llama.cpp can't see the GPU:
+If `check-gpu.sh` exits with code 2 (llama.cpp in the prebuilt image can't see the GPU):
 
 ```bash
 sed -i 's|^LLM_IMAGE=.*|LLM_IMAGE=notes-llm:pascal|' .env
@@ -61,8 +84,10 @@ model call, no restart needed.
 
 ## Update
 
+Re-run the install command, or by hand:
+
 ```bash
-git pull
+git pull                        # ZimaOS without git: docker run --rm -v "$PWD":/w -w /w alpine/git pull
 docker compose up -d --build    # migrations in migrations/ are applied on bot start
 ```
 

@@ -35,10 +35,9 @@ services:
         max-file: "3"
 
   llm:
+    # Pascal fallback: LLM_IMAGE=notes-llm:pascal, built by scripts/check-gpu.sh from llm/Dockerfile.
+    # No build: section here, so `docker compose up --build` only rebuilds the bot.
     image: ${LLM_IMAGE:-ghcr.io/mostlygeek/llama-swap:cuda}
-    # Pascal fallback: LLM_IMAGE=notes-llm:pascal and docker compose build llm
-    build:
-      context: ./llm
     container_name: notes-llm
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
