@@ -17,5 +17,5 @@ COPY migrations ./migrations
 COPY bot ./bot
 COPY web/__init__.py ./web/__init__.py
 COPY web/api ./web/api
-COPY --from=web /app/web/static ./web/static
+COPY --from=web /app/web/app/dist ./web/app/dist
 CMD ["python", "-m", "bot.main"]

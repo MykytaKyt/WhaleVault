@@ -139,7 +139,7 @@ def note_full(conn: sqlite3.Connection, note_id: int, raw: bool = False) -> list
 def move_kb(conn: sqlite3.Connection, note_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     current = notes_db.get_note(conn, note_id)["topic_id"]
-    for t in conn.execute("SELECT id, name, emoji FROM topics ORDER BY name").fetchall():
+    for t in conn.execute("SELECT id, name, emoji FROM topics WHERE merged_into IS NULL ORDER BY name").fetchall():
         if t["id"] != current:
             kb.button(text=topic_label(t["name"], t["emoji"])[:40], callback_data=MoveCB(note_id=note_id, topic_id=t["id"]))
     kb.button(text="➕ Новая тема", callback_data=MoveCB(note_id=note_id, topic_id=0))

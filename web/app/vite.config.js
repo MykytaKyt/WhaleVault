@@ -8,7 +8,7 @@ export default defineConfig({
 	plugins: [
 		tailwindcss(),
 		sveltekit({
-			adapter: adapter({ pages: '../static', assets: '../static', fallback: 'index.html', strict: false })
+			adapter: adapter({ pages: 'dist', assets: 'dist', fallback: 'index.html', strict: false })
 		})
 	],
 	server: {

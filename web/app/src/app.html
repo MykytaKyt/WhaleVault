@@ -2,9 +2,17 @@
 <html lang="ru">
 	<head>
 		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 		<meta name="color-scheme" content="light dark" />
+		<meta name="description" content="Заметки, темы и сводки — WhaleVault" />
 		<title>WhaleVault</title>
+		<script>
+			// Apply the saved theme before first paint (no flash); allowed by the CSP hash
+			try {
+				var t = localStorage.getItem('theme');
+				if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+			} catch (e) {}
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

@@ -60,13 +60,14 @@ async def plan(deps: Deps, question: str) -> AskPlan:
     return AskPlan(question, hits, messages)
 
 
-async def stream_answer(deps: Deps, p: AskPlan) -> AsyncIterator[str]:
-    """Yield answer deltas. The caller must hold deps.gpu_lock."""
+async def stream_answer(deps: Deps, p: AskPlan, thinking: bool | None = None) -> AsyncIterator[str]:
+    """Yield answer deltas. The caller must hold deps.gpu_lock. thinking=None uses ASK_THINKING."""
     if not p.hits:
         yield NOT_FOUND
         return
-    async for piece in deps.llm.stream(deps.llm.answer, p.messages, thinking=deps.settings.ask_thinking,
-                                       temperature=0.3, max_tokens=1200):
+    think = deps.settings.ask_thinking if thinking is None else thinking
+    async for piece in deps.llm.stream(deps.llm.answer, p.messages, thinking=think, task="ask",
+                                       temperature=0.3, max_tokens=4000 if think else 1200):
         yield piece
 
 

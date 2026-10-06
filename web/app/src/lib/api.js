@@ -1,63 +1,71 @@
-// Thin client for web/api. A 401 anywhere flips the app to the login screen.
+// Client for web/api. Errors come as {error: {code, message}}; a 401 flips the app to the login screen.
 import { session } from './state.svelte.js';
 
-async function call(method, path, body) {
-	const res = await fetch(`/api${path}`, {
-		method,
-		headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
-		body: body !== undefined ? JSON.stringify(body) : undefined
-	});
-	if (res.status === 401 && path !== '/login') {
+export class ApiError extends Error {
+	constructor(code, message) {
+		super(message);
+		this.code = code;
+	}
+}
+
+async function call(fetchFn, method, path, body) {
+	let res;
+	try {
+		res = await fetchFn(`/api${path}`, {
+			method,
+			headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
+			body: body !== undefined ? JSON.stringify(body) : undefined
+		});
+	} catch {
+		throw new ApiError(0, 'Сервер не отвечает. Проверьте, что вы в домашней сети.');
+	}
+	if (res.status === 401 && !path.startsWith('/auth/login')) {
 		session.authed = false;
-		throw new Error('login required');
+		throw new ApiError(401, 'Нужно войти');
 	}
 	if (!res.ok) {
-		let detail = res.statusText;
+		let message = res.statusText;
 		try {
-			detail = (await res.json()).detail ?? detail;
+			message = (await res.json()).error?.message ?? message;
 		} catch {}
-		throw new Error(detail);
+		throw new ApiError(res.status, message);
 	}
 	return res.json();
 }
 
+/** For components (window.fetch) */
 export const api = {
-	get: (path) => call('GET', path),
-	post: (path, body = {}) => call('POST', path, body),
-	patch: (path, body) => call('PATCH', path, body),
-	del: (path) => call('DELETE', path)
+	get: (path) => call(fetch, 'GET', path),
+	post: (path, body = {}) => call(fetch, 'POST', path, body),
+	patch: (path, body) => call(fetch, 'PATCH', path, body),
+	del: (path) => call(fetch, 'DELETE', path)
 };
 
-/** POST /api/ask and read the SSE stream. handlers: { status, sources, token, done, error } */
-export async function ask(question, handlers, signal) {
-	const res = await fetch('/api/ask', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ question }),
-		signal
-	});
-	if (res.status === 401) {
-		session.authed = false;
-		return;
+/** For SvelteKit load functions: use their fetch so data is ready before the page shows */
+export const loadApi = (fetchFn) => ({ get: (path) => call(fetchFn, 'GET', path) });
+
+/** Poll a background job until it finishes; onUpdate gets every state */
+export async function waitJob(job, onUpdate) {
+	while (job && (job.status === 'queued' || job.status === 'running')) {
+		onUpdate?.(job);
+		await new Promise((r) => setTimeout(r, 1000));
+		job = await api.get(`/jobs/${job.id}`);
 	}
-	const reader = res.body.getReader();
-	const decoder = new TextDecoder();
-	let buf = '';
-	for (;;) {
-		const { value, done } = await reader.read();
-		if (done) break;
-		buf += decoder.decode(value, { stream: true });
-		let i;
-		while ((i = buf.indexOf('\n\n')) >= 0) {
-			const block = buf.slice(0, i);
-			buf = buf.slice(i + 2);
-			let event = 'message';
-			let data = '';
-			for (const line of block.split('\n')) {
-				if (line.startsWith('event:')) event = line.slice(6).trim();
-				else if (line.startsWith('data:')) data += line.slice(5).trim();
-			}
-			handlers[event]?.(data ? JSON.parse(data) : null);
+	onUpdate?.(job);
+	return job;
+}
+
+/**
+ * Wrap a load function: 401 → empty data (the layout shows the login screen),
+ * other errors → {error, code} for the page to show an honest message.
+ */
+export function guarded(fn) {
+	return async (event) => {
+		try {
+			return await fn({ ...event, api: loadApi(event.fetch) });
+		} catch (e) {
+			if (e.code === 401) return { unauthorized: true };
+			return { error: e.message, code: e.code ?? 0 };
 		}
-	}
+	};
 }

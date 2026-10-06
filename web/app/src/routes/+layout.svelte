@@ -2,17 +2,19 @@
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import { api } from '#lib/api.js';
-	import Login from '#lib/components/Login.svelte';
-	import Palette from '#lib/components/Palette.svelte';
-	import Sidebar from '#lib/components/Sidebar.svelte';
-	import Toast from '#lib/components/Toast.svelte';
-	import { refreshSidebar, session, sidebar } from '#lib/state.svelte.js';
+	import Login from '#lib/ui/Login.svelte';
+	import MobileBar from '#lib/ui/MobileBar.svelte';
+	import Palette from '#lib/ui/Palette.svelte';
+	import Sidebar from '#lib/ui/Sidebar.svelte';
+	import Toast from '#lib/ui/Toast.svelte';
+	import { applyTheme, prefs, refreshTopics, session } from '#lib/state.svelte.js';
 
 	let { children } = $props();
 
 	onMount(async () => {
+		applyTheme(prefs.theme);
 		try {
-			await api.get('/me');
+			await api.get('/auth/me');
 			session.authed = true;
 		} catch {
 			session.authed = false;
@@ -20,25 +22,21 @@
 	});
 
 	$effect(() => {
-		if (session.authed) refreshSidebar();
+		if (session.authed) refreshTopics();
 	});
 </script>
+
+<a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded focus:bg-bg focus:p-2">К содержимому</a>
 
 {#if session.authed === false}
 	<Login />
 {:else if session.authed}
-	<div class="flex min-h-screen">
+	<div class="md:flex">
 		<Sidebar />
-		<main class="min-w-0 flex-1">
-			<button
-				class="sticky top-0 z-20 m-2 rounded-md bg-bg/80 px-2 py-1 text-xl backdrop-blur md:hidden"
-				aria-label="Меню"
-				onclick={() => (sidebar.open = true)}>☰</button
-			>
-			<div class="mx-auto max-w-[720px] px-5 pt-4 pb-24 md:px-6 md:pt-16">
-				{@render children()}
-			</div>
-		</main>
+		<div class="min-w-0 flex-1">
+			<MobileBar />
+			<main id="main" class="px-4 pt-6 pb-24 md:px-8 md:pt-12">{@render children()}</main>
+		</div>
 	</div>
 	<Palette />
 	<Toast />

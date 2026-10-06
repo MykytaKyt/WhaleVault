@@ -12,8 +12,10 @@ RRF), /ask with streaming and source buttons, /inbox, /stats; daily backup; GPU 
 Stage 3: entities (people, cars, projects, places) with atomic facts and explicit contradictions, /entities;
 tasks with deadlines, reminders at 09:00 on the due day and the day before, /todo; edits in plain language
 by replying to the bot's message about a note (move, rename, merge, tag, delete, set a date, or add details).
-Stage 4: a Notion-style web UI on the home network (all notes, topics, notes with properties and edits,
-entities, tasks, inbox, "Ask" with streaming, Ctrl/Cmd+K search), one password.
+Stage 4: a Notion-style web UI on the home network, phone first: topic cards with model-written summaries
+(known facts, open questions, what changed this week), notes with properties and in-place edits, topic
+merge/split, entities with contradictions to confirm, tasks, inbox, "Ask" with streaming, Ctrl/Cmd+K search,
+and a dashboard (GPU, models, pipeline, database quality, energy). One password, light and dark themes.
 
 ```bash
 pip install -r requirements-dev.txt && python -m pytest -q   # tests with a mock model, no GPU needed

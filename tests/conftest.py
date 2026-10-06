@@ -49,11 +49,20 @@ class FakeLLM(LLMClient):
         super().__init__("http://fake", routine="routine", answer="answer", embed="embed")
         self.calls: list[tuple[str, list[dict]]] = []
         self.fail_json = 0          # how many chat_json calls should fail
+        self.fail_chat = False      # simulate the llm container being down
         self.answer_text = "Ответ по заметкам [#1]."
         self.question_markers = ("что я", "коли", "когда у меня")
 
     async def chat(self, model, messages, **params):
         self.calls.append((model, messages))
+        if self.fail_chat:
+            raise LLMError("ConnectError: llm is down")
+        if "summary page of one topic" in messages[0]["content"]:
+            ids = re.findall(r"\[#(\d+)\]", messages[-1]["content"])
+            cite = " ".join(f"[#{i}]" for i in ids[:2])
+            return ("Вот сводка:\n## Что известно\nКатализатор забит, ремонт оценили в 12 000 грн " + cite +
+                    ".\n\n## Открытые вопросы и задачи\n- Спросить контакты мастера\n\n"
+                    "## Что изменилось за неделю\nНовая оценка ремонта " + cite + ".")
         text = messages[-1]["content"]
         text = re.sub(r"^\[.*?\]\n", "", text)
         return re.sub(r"\b(ну|короче|эээ)\b,?\s*", "", text).strip()
@@ -114,6 +123,11 @@ class FakeLLM(LLMClient):
             self.fail_json -= 1
             raise LLMError("invalid NoteMarkup")
         prompt = messages[-1]["content"]
+        if schema.__name__ == "SplitProposal":
+            ids = [int(i) for i in re.findall(r"\[#(\d+)\]", prompt)]
+            half = len(ids) // 2 or 1
+            return schema(groups=[{"name": "Ремонт", "emoji": "🔧", "note_ids": ids[:half]},
+                                  {"name": "Обслуживание", "emoji": "🛢", "note_ids": ids[half:]}], reason="test")
         if schema is EditIntent:
             return self._edit(prompt)
         if schema is Extraction:
