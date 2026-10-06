@@ -82,6 +82,43 @@ Send the bot any text. Logs: `logs/bot.log`; model failures with full prompt and
 Prompts live in `bot/prompts/*.md` and are mounted into the container: edits apply on the next
 model call, no restart needed.
 
+## Web UI (stage 4)
+
+`docker compose up -d` also starts `notes-web`: FastAPI plus the built SvelteKit UI, the same image as the bot.
+Open `http://<server-ip>:8090` from the home network (or over Tailscale) and log in with `WEB_PASSWORD`
+from `.env` (the installer generates one). The session lasts 30 days.
+
+Pages:
+
+| Path | What |
+| --- | --- |
+| `/` | Topic cards: the start of each topic summary, notes count, how old the summary is |
+| `/t/<slug>` | Topic: summary (Что известно / Открытые вопросы и задачи / Что изменилось за неделю) with `[#id]` links, «Обновить сводку сейчас», notes by tag; menu: rename, merge, split |
+| `/n/<id>` | Note: properties (date, topic, tags, source), text edited in place, original/media, tasks, facts, similar notes |
+| `/e`, `/e/<id>` | Entities; contradictions to confirm («Верно»), facts by date |
+| `/tasks`, `/notes`, `/inbox` | Tasks by due date; all notes with filters; processing / failed / duplicates |
+| `/ask` | Question over the notes, streamed, with sources; «Думать дольше» turns thinking on |
+| `/dash` | Status now, hardware, model work, pipeline, database quality, energy, event log |
+| `/settings` | Theme, password, show «Входящие», rebuild the search index, download an archive |
+
+Ctrl/Cmd+K opens search from any page.
+
+- Never forward the port on the router. `WEB_BIND=127.0.0.1` keeps it local to the server.
+- The password is stored as an argon2 hash in `data/web_password.json`. Changing it in «Настройки» logs
+  everyone out, and from then on `WEB_PASSWORD` in `.env` is ignored; to reset a forgotten password,
+  delete that file and restart `notes-web` (it rehashes `WEB_PASSWORD`). 5 wrong attempts pause logins for a minute.
+- Topic summaries are made by the answer model: by the button, or in the nightly cleanup for topics with new
+  notes (03:30). Merging topics rewrites the target summary at once. Editing a note's text re-embeds it and re-extracts its facts.
+- Energy on the dashboard: set `ENERGY_PRICE_DAY` / `ENERGY_PRICE_NIGHT` (per kWh, `ENERGY_CURRENCY`) and the
+  night window `ENERGY_NIGHT_START` / `ENERGY_NIGHT_END` in `.env`. Without prices only Wh are shown.
+- The bot samples the server every 30 s into the `metrics` table (raw for 90 days, then hourly averages).
+  If the dashboard says samples are stale, the bot container is down.
+- The bot and the web share `data/notes.db` (SQLite WAL) and one GPU lock (`data/gpu.lock`), so a web
+  "Ask" or summary waits while the bot is processing a note and vice versa.
+- "Reprocess" in the web inbox only re-queues the note; the bot picks it up within 30 seconds.
+- Frontend development: `cd web/app && npm ci && npm run dev` (proxies `/api` to a local
+  `python -m uvicorn web.api.main:app --port 8090`). `npm run build` writes `web/app/dist`, which the API serves.
+
 ## Update
 
 Re-run the install command, or by hand:
@@ -132,6 +169,7 @@ Moving to another server: copy the whole project folder (`data/` included) and r
 | 0 MB VRAM after 10 min idle | `nvidia-smi --query-gpu=memory.used --format=csv` |
 | RAM ≤ 1.5 GB idle, ≤ 4 GB with 9B | `docker stats --no-stream` |
 | Restart keeps notes; restore works | `docker compose down && docker compose up -d`; restore once as above |
+| **Stage 4:** web UI | Any page < 300 ms with 1 000 notes, palette (Ctrl/Cmd+K) < 200 ms, readable on a phone; wrong password → login page |
 | **Stage 3:** facts and contradictions | Send «катализатор на Kia Soul: ремонт 9 тысяч», later «теперь ремонт 12 тысяч по Kia Soul»; `/entities` → Kia Soul shows the old fact struck through |
 | Tasks and reminders | «спросить у Сергея контакты мастера в пятницу» → task with Friday's date in the report and in `/todo`; a reminder arrives at 09:00 on Thursday and Friday |
 | Edits by reply | Reply to a note report: «перенеси в …», «назови …», «тег …», «это на пятницу», «объедини с заметкой про …» (asks to confirm), «удали», or any extra detail (appended to the note) |

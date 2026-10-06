@@ -36,7 +36,7 @@ async def classify_edit(deps: Deps, note_id: int, text: str) -> EditIntent:
     messages = render(s.prompts_dir, "edit", today=today_label(s.tz), topics=topics_block(deps.conn),
                       note_id=note_id, title=note["title"] or "", topic=note["topic_name"] or "—",
                       summary=note["summary"] or (note["clean_text"] or note["raw_text"])[:300], text=text)
-    return await deps.llm.chat_json(deps.llm.routine, messages, EditIntent, max_tokens=200)
+    return await deps.llm.chat_json(deps.llm.routine, messages, EditIntent, max_tokens=200, task="intent")
 
 
 async def apply_edit(deps: Deps, note_id: int, intent: EditIntent, text: str) -> EditOutcome:

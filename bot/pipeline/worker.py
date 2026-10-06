@@ -90,6 +90,16 @@ async def finish_question_as_note(deps: Deps, note_id: int) -> EmbedResult:
     return await embed_note(deps, note_id)
 
 
+def record_latency(conn, note_id: int) -> None:
+    """Seconds from receiving the note to its report, for the dashboard."""
+    from datetime import datetime, timezone
+    from .. import metrics
+    row = conn.execute("SELECT created_at, source FROM notes WHERE id = ?", (note_id,)).fetchone()
+    created = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
+    metrics.record(conn, "note_latency", (datetime.now(timezone.utc) - created).total_seconds(),
+                   {"source": row["source"]})
+
+
 class Worker:
     def __init__(self, deps: Deps,
                  on_done: Callable[[NoteResult], Awaitable[None]] | None = None,
@@ -131,9 +141,13 @@ class Worker:
                 self.enqueue(note_id)
             else:
                 notes_db.set_status(conn, note_id, "failed", str(e)[:500])
+                from .. import metrics
+                metrics.event(conn, "note", f"Заметка #{note_id} не разобрана: {str(e)[:200]}")
                 if self.on_failed:
                     await self.on_failed(note_id, str(e))
             return None
+        if result:
+            record_latency(conn, note_id)
         if result and self.on_done:
             await self.on_done(result)
         return result

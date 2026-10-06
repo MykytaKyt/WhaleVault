@@ -74,4 +74,8 @@ jobs:
           c = connect(':memory:', Path('migrations'), 1024)
           print('vec', c.execute('select vec_version()').fetchone()[0])
           print('tables', len(c.execute('select name from sqlite_master').fetchall()))
+          from web.api.main import DIST, csp_for
+          index = (DIST / 'index.html').read_text()
+          assert list(DIST.glob('_app/immutable/**/*.js')), 'web UI not built into the image'
+          print('web', csp_for(index).count('sha256-'), 'inline script hash(es)')
           "

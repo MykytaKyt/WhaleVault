@@ -24,7 +24,8 @@ def normalize_name(name: str) -> str:
 
 
 def list_topics(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    return conn.execute("SELECT * FROM topics ORDER BY notes_count DESC, name").fetchall()
+    """Live topics (merged ones are kept only for redirects)."""
+    return conn.execute("SELECT * FROM topics WHERE merged_into IS NULL ORDER BY notes_count DESC, name").fetchall()
 
 
 def get_topic(conn: sqlite3.Connection, topic_id: int) -> sqlite3.Row | None:
@@ -33,7 +34,7 @@ def get_topic(conn: sqlite3.Connection, topic_id: int) -> sqlite3.Row | None:
 
 def find_by_name(conn: sqlite3.Connection, name: str) -> sqlite3.Row | None:
     key = normalize_name(name)
-    for t in conn.execute("SELECT * FROM topics"):
+    for t in conn.execute("SELECT * FROM topics WHERE merged_into IS NULL"):
         if normalize_name(t["name"]) == key:
             return t
     return None
@@ -59,7 +60,7 @@ def recount(conn: sqlite3.Connection, *topic_ids: int | None) -> None:
     for tid in {t for t in topic_ids if t}:
         conn.execute(
             "UPDATE topics SET notes_count = (SELECT count(*) FROM notes WHERE topic_id = ? AND status = 'done'),"
-            " updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+            " overview_stale = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
             (tid, tid),
         )
 
@@ -95,3 +96,49 @@ def recent_feedback(conn: sqlite3.Connection, limit: int) -> list[sqlite3.Row]:
            ORDER BY f.id DESC LIMIT ?""",
         (limit,),
     ).fetchall()
+
+
+def update_topic(conn: sqlite3.Connection, topic_id: int, *, name: str | None = None,
+                 description: str | None = None, emoji: str | None = None) -> None:
+    fields, values = [], []
+    for col, val in (("name", name), ("description", description), ("emoji", emoji)):
+        if val is not None:
+            fields.append(f"{col} = ?")
+            values.append(val.strip())
+    if fields:
+        conn.execute(f"UPDATE topics SET {', '.join(fields)}, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                     f"WHERE id = ?", (*values, topic_id))
+
+
+def merge_topics(conn: sqlite3.Connection, source_id: int, target_id: int) -> int:
+    """Move every note of source into target; source stays as a redirect (merged_into). Returns the number
+    of notes moved. Not recorded as feedback: it's a reorganisation, not a classification mistake."""
+    if source_id == target_id:
+        return 0
+    with Tx(conn):
+        moved = conn.execute("UPDATE notes SET topic_id = ? WHERE topic_id = ?", (target_id, source_id)).rowcount
+        conn.execute("UPDATE feedback SET from_topic_id = ? WHERE from_topic_id = ?", (target_id, source_id))
+        conn.execute("UPDATE feedback SET to_topic_id = ? WHERE to_topic_id = ?", (target_id, source_id))
+        conn.execute("UPDATE topics SET merged_into = ?, notes_count = 0 WHERE id = ?", (target_id, source_id))
+        # Older redirects to the source now point at the target too
+        conn.execute("UPDATE topics SET merged_into = ? WHERE merged_into = ?", (target_id, source_id))
+        recount(conn, target_id)
+    return moved
+
+
+def get_by_slug(conn: sqlite3.Connection, slug: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM topics WHERE slug = ?", (slug,)).fetchone()
+
+
+def resolve(conn: sqlite3.Connection, topic: sqlite3.Row) -> sqlite3.Row:
+    """Follow merged_into to the live topic."""
+    seen = set()
+    while topic["merged_into"] and topic["id"] not in seen:
+        seen.add(topic["id"])
+        topic = get_topic(conn, topic["merged_into"])
+    return topic
+
+
+def set_overview(conn: sqlite3.Connection, topic_id: int, overview: str) -> None:
+    conn.execute("UPDATE topics SET overview = ?, overview_stale = 0, "
+                 "overview_updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", (overview, topic_id))

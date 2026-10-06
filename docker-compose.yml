@@ -34,6 +34,32 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  web:
+    # Same image as the bot, different process: FastAPI + the built web UI
+    image: notes-bot:latest
+    container_name: notes-web
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    command: ["python", "-m", "uvicorn", "web.api.main:app", "--host", "0.0.0.0", "--port", "8090", "--no-access-log"]
+    env_file: .env
+    environment:
+      LLM_URL: http://llm:8080
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./bot/prompts:/app/bot/prompts:ro
+    ports:
+      # Home network (and Tailscale) only: never forward this port on the router
+      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8090}:8090"
+    depends_on:
+      - bot
+    mem_limit: ${WEB_MEM_LIMIT:-256m}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   llm:
     # Pascal fallback: LLM_IMAGE=notes-llm:pascal, built by scripts/check-gpu.sh from llm/Dockerfile.
     # No build: section here, so `docker compose up --build` only rebuilds the bot.

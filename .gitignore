@@ -8,3 +8,6 @@ __pycache__/
 node_modules/
 
 backups/
+
+# Built web UI (made by web/app: npm run build; the Docker image builds it)
+web/app/dist/

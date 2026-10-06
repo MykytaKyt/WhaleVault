@@ -65,5 +65,17 @@ async def extract_addendum(deps: Deps, note_id: int, note_text: str, addition: s
     s = deps.settings
     messages = render(s.prompts_dir, "extract", today=today_label(s.tz), note=note_text[:1500], text=addition,
                       entities=entities_db.known_block(deps.conn, addition))
-    x = await deps.llm.chat_json(deps.llm.routine, messages, Extraction, max_tokens=600)
+    x = await deps.llm.chat_json(deps.llm.routine, messages, Extraction, max_tokens=600, task="extract")
     return apply(deps.conn, note_id, x.entities, x.facts, x.tasks, replace=False)
+
+
+async def reextract_note(deps: Deps, note_id: int) -> Extracted:
+    """After the user edits clean_text: extract entities, facts and tasks again from the whole note."""
+    note = deps.conn.execute("SELECT title, clean_text, raw_text FROM notes WHERE id = ?", (note_id,)).fetchone()
+    text = note["clean_text"] or note["raw_text"]
+    s = deps.settings
+    messages = render(s.prompts_dir, "extract", today=today_label(s.tz), note=note["title"] or "", text=text,
+                      entities=entities_db.known_block(deps.conn, text))
+    async with deps.gpu_lock:
+        x = await deps.llm.chat_json(deps.llm.routine, messages, Extraction, max_tokens=800, task="extract")
+    return apply(deps.conn, note_id, x.entities, x.facts, x.tasks, replace=True)

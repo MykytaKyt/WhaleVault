@@ -61,6 +61,17 @@ class Settings(BaseSettings):
     backup_keep: int = 14
     purge_deleted_days: int = 30
 
+    # Energy for the dashboard: price per kWh, night tariff hours (same currency for both)
+    energy_price_day: float = 0.0
+    energy_price_night: float = 0.0
+    energy_night_start: time = time(23, 0)
+    energy_night_end: time = time(7, 0)
+    energy_currency: str = "грн"
+
+    # Web UI (stage 4)
+    web_password: str = ""
+    web_session_days: int = 30
+
     log_level: str = "INFO"
 
     @property

@@ -38,8 +38,12 @@ git_() {  # git_ <workdir> <args...>
   fi
 }
 
-set_env() {  # set_env KEY VALUE — replace the line in .env (value must not contain '|')
-  sed -i "s|^$1=.*|$1=$2|" .env
+set_env() {  # set_env KEY VALUE — replace the line in .env, or append it (value must not contain '|')
+  if grep -q "^$1=" .env; then
+    sed -i "s|^$1=.*|$1=$2|" .env
+  else
+    printf '%s=%s\n' "$1" "$2" >> .env
+  fi
 }
 
 # Everything runs inside main(): bash reads the whole function before executing it, so the
@@ -84,6 +88,10 @@ main() {
     [[ "$uid" =~ ^[0-9]+$ ]] || die "the id must be a number: put ALLOWED_USER_ID into $NOTES_DIR/.env and run again"
     set_env ALLOWED_USER_ID "$uid"
   fi
+  if ! grep -qE '^WEB_PASSWORD=.+' .env; then
+    set_env WEB_PASSWORD "$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)"
+    ok "generated a password for the web UI (WEB_PASSWORD in .env)"
+  fi
   tz=$(grep -E '^TZ=' .env | cut -d= -f2)
   ok "time zone $tz (change TZ in .env if needed)"
   mkdir -p data logs backups data/cache/cuda
@@ -127,9 +135,18 @@ main() {
     || die "the bot did not start in 2 minutes: cd $NOTES_DIR && docker compose logs bot"
   ok "the bot is running"
 
+  # These lookups must never abort the script (set -e + pipefail): busybox may lack `hostname -I`,
+  # and an .env from before stage 4 has no WEB_PORT line
+  ip=$( (hostname -I 2>/dev/null || true) | awk '{print $1}')
+  [ -n "$ip" ] || ip=$( (ip -4 route get 1.1.1.1 2>/dev/null || true) \
+    | awk '{for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1)}')
+  port=$( (grep -E '^WEB_PORT=' .env || true) | cut -d= -f2)
+  password=$( (grep -E '^WEB_PASSWORD=' .env || true) | cut -d= -f2)
   cat <<EOF
 
 Done. Send your bot any text in Telegram: it answers "Принял" at once, the topic arrives within a minute.
+
+  Web UI:     http://${ip:-<server-ip>}:${port:-8090}   password: $password
 
   Logs:       cd $NOTES_DIR && docker compose logs -f bot
   Benchmark:  cd $NOTES_DIR && ./scripts/bench.sh

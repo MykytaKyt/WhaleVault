@@ -38,10 +38,11 @@ def bump_attempts(conn: sqlite3.Connection, note_id: int) -> int:
     return conn.execute("SELECT attempts FROM notes WHERE id = ?", (note_id,)).fetchone()[0]
 
 
-def pending_ids(conn: sqlite3.Connection) -> list[int]:
-    """Notes that must be (re)processed after a restart."""
-    return [r[0] for r in conn.execute(
-        "SELECT id FROM notes WHERE status IN ('queued', 'processing') ORDER BY id")]
+def pending_ids(conn: sqlite3.Connection, include_processing: bool = True) -> list[int]:
+    """Notes waiting for the worker. After a restart 'processing' ones are pending too;
+    while running, only 'queued' ones are (a 'processing' note is in the worker's hands)."""
+    statuses = "('queued', 'processing')" if include_processing else "('queued')"
+    return [r[0] for r in conn.execute(f"SELECT id FROM notes WHERE status IN {statuses} ORDER BY id")]
 
 
 def set_clean_text(conn: sqlite3.Connection, note_id: int, clean_text: str) -> None:
@@ -190,3 +191,54 @@ def mark_question(conn: sqlite3.Connection, note_id: int) -> None:
         conn.execute("DELETE FROM notes_fts WHERE rowid = ?", (note_id,))
         if row:
             topics_db.recount(conn, row["topic_id"])
+
+
+def list_notes(conn: sqlite3.Connection, *, cursor: str | None = None, limit: int = 50,
+               topic_id: int | None = None) -> tuple[list[sqlite3.Row], str | None]:
+    """Processed notes, newest first. cursor = "<created_at>|<id>" of the last row of the previous page."""
+    where, args = ["n.status = 'done'"], []
+    if topic_id is not None:
+        where.append("n.topic_id = ?")
+        args.append(topic_id)
+    if cursor:
+        created, _, nid = cursor.rpartition("|")
+        where.append("(n.created_at < ? OR (n.created_at = ? AND n.id < ?))")
+        args += [created, created, int(nid)]
+    rows = conn.execute(
+        f"""SELECT n.id, n.created_at, n.title, n.summary, n.source, n.topic_id,
+                   substr(coalesce(n.clean_text, n.raw_text), 1, 300) AS preview,
+                   t.name AS topic_name, t.emoji AS topic_emoji,
+                   (SELECT group_concat(tg.tag, ',') FROM note_tags nt JOIN tags tg ON tg.id = nt.tag_id
+                    WHERE nt.note_id = n.id) AS tags
+            FROM notes n LEFT JOIN topics t ON t.id = n.topic_id
+            WHERE {' AND '.join(where)}
+            ORDER BY n.created_at DESC, n.id DESC LIMIT ?""", (*args, limit + 1)).fetchall()
+    nxt = f"{rows[limit - 1]['created_at']}|{rows[limit - 1]['id']}" if len(rows) > limit else None
+    return rows[:limit], nxt
+
+
+def update_note(conn: sqlite3.Connection, note_id: int, *, title: str | None = None,
+                clean_text: str | None = None) -> None:
+    """Edits from the web UI. A changed clean_text needs new embeddings (embed_dirty)."""
+    with Tx(conn):
+        if title is not None:
+            conn.execute(f"UPDATE notes SET title = ?, embed_dirty = 1, updated_at = {NOW} WHERE id = ?",
+                         (title.strip(), note_id))
+        if clean_text is not None:
+            conn.execute(f"UPDATE notes SET clean_text = ?, embed_dirty = 1, updated_at = {NOW} WHERE id = ?",
+                         (clean_text, note_id))
+        sync_fts(conn, note_id)
+
+
+def requeue(conn: sqlite3.Connection, note_id: int) -> None:
+    conn.execute(f"UPDATE notes SET status = 'queued', attempts = 0, error = NULL, updated_at = {NOW} WHERE id = ?",
+                 (note_id,))
+
+
+def duplicate_pairs(conn: sqlite3.Connection, threshold: float, limit: int = 30) -> list[sqlite3.Row]:
+    return conn.execute(
+        """SELECT l.note_id AS a, l.related_note_id AS b, l.score, na.title AS a_title, nb.title AS b_title,
+                  na.created_at AS a_created, nb.created_at AS b_created
+           FROM links l JOIN notes na ON na.id = l.note_id JOIN notes nb ON nb.id = l.related_note_id
+           WHERE l.note_id < l.related_note_id AND l.score > ? AND na.status = 'done' AND nb.status = 'done'
+           ORDER BY l.score DESC LIMIT ?""", (threshold, limit)).fetchall()

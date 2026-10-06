@@ -5,4 +5,7 @@ logs
 backups
 tests
 docs
+web/app/dist
+web/app/node_modules
+web/app/.svelte-kit
 **/__pycache__

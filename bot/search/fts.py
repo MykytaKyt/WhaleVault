@@ -30,3 +30,32 @@ def search(conn: sqlite3.Connection, query: str, limit: int = 20) -> list[int]:
             if r[0] not in ids:
                 ids.append(r[0])
     return ids[:limit]
+
+
+START, END = "\x02", "\x03"
+
+
+def segments(marked: str) -> list[dict]:
+    """"a \x02b\x03 c" -> [{t: "a ", hit: False}, {t: "b", hit: True}, {t: " c", hit: False}]"""
+    out, hit = [], False
+    for part in re.split(f"([{START}{END}])", marked):
+        if part == START:
+            hit = True
+        elif part == END:
+            hit = False
+        elif part:
+            out.append({"t": part, "hit": hit})
+    return out
+
+
+def snippets(conn: sqlite3.Connection, query: str, ids: list[int], tokens: int = 14) -> dict[int, dict]:
+    """Highlighted title and text fragment for the given notes, where the query matches them."""
+    terms = _terms(query)
+    if not terms or not ids:
+        return {}
+    rows = conn.execute(
+        f"""SELECT rowid, highlight(notes_fts, 0, ?, ?) AS title,
+                   snippet(notes_fts, 2, ?, ?, '…', ?) AS text
+            FROM notes_fts WHERE notes_fts MATCH ? AND rowid IN ({','.join('?' * len(ids))})""",
+        (START, END, START, END, tokens, " OR ".join(terms), *ids)).fetchall()
+    return {r[0]: {"title": segments(r[1]), "text": segments(r[2])} for r in rows}
