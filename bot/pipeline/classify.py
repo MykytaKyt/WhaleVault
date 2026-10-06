@@ -47,8 +47,9 @@ async def classify(deps: Deps, text: str) -> NoteMarkup:
     return await deps.llm.chat_json(deps.llm.routine, messages, NoteMarkup, max_tokens=1200)
 
 
-def resolve_topic(conn: sqlite3.Connection, markup: NoteMarkup) -> tuple[int, bool]:
-    """Map the model's choice to a topic id. At most one new topic per note."""
+def resolve_topic(conn: sqlite3.Connection, markup: NoteMarkup) -> tuple[int | None, bool]:
+    """Map the model's choice to a topic id. At most one new topic per note.
+    A question never creates a topic: it gets an existing one or none until the user keeps it."""
     t = markup.topic
     if t.existing_topic_id is not None and topics_db.get_topic(conn, t.existing_topic_id):
         return t.existing_topic_id, False
@@ -57,7 +58,15 @@ def resolve_topic(conn: sqlite3.Connection, markup: NoteMarkup) -> tuple[int, bo
         existing = topics_db.find_by_name(conn, name)
         if existing:
             return existing["id"], False
+        if markup.is_question:
+            return None, False
         return topics_db.create_topic(conn, name, t.new_topic_description or "", t.new_topic_emoji or ""), True
+    if markup.is_question:
+        return None, False
+    return fallback_topic(conn)
+
+
+def fallback_topic(conn: sqlite3.Connection) -> tuple[int, bool]:
     existing = topics_db.find_by_name(conn, FALLBACK_TOPIC)
     if existing:
         return existing["id"], False

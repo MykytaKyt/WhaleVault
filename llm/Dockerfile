@@ -2,7 +2,7 @@
 # Needed if the prebuilt ghcr.io/mostlygeek/llama-swap:cuda image can't see the GPU
 # (e.g. driver < 570 can't run CUDA 12.8). Building on an i5-8500T takes ~20–40 minutes.
 #   In .env: LLM_IMAGE=notes-llm:pascal
-#   docker compose build llm && docker compose up -d llm
+#   docker build -t notes-llm:pascal llm/ && docker compose up -d llm   (scripts/check-gpu.sh does the build)
 ARG CUDA_VERSION=12.4.1
 ARG UBUNTU_VERSION=22.04
 

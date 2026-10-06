@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Checks the driver, NVIDIA Container Toolkit and the llama.cpp CUDA backend in the LLM image.
-# Exit code 0 = OK to bring up docker compose. No bot code is written until this passes.
+# Exit codes: 0 = OK to bring up docker compose; 1 = driver/Docker problem;
+# 2 = only the llama.cpp image can't see the GPU (the Pascal fallback build fixes this).
 # shellcheck source=scripts/lib.sh
 . "$(dirname "$0")/lib.sh"
 load_env
@@ -38,20 +39,22 @@ fi
 echo "== 4. llama.cpp CUDA backend in image $LLM_IMAGE"
 if ! docker image inspect "$LLM_IMAGE" >/dev/null 2>&1; then
   if [ "$LLM_IMAGE" = "notes-llm:pascal" ]; then
-    echo "   image not built, building (slow)..."; docker compose build llm || { fail "build failed"; exit 1; }
+    echo "   image not built, building (slow)..."
+    docker build -t notes-llm:pascal llm/ || { fail "build failed"; exit 1; }
   else
     docker pull "$LLM_IMAGE" || { fail "failed to pull $LLM_IMAGE"; exit 1; }
   fi
 fi
 mkdir -p data/cache/cuda
-devs=$(docker run --rm --gpus all --entrypoint /app/llama-server \
+devs=$(docker run --rm --gpus all --entrypoint /app/llama-server --user "${PUID:-1000}:${PGID:-1000}" \
   -e CUDA_CACHE_PATH=/cache/cuda -v "$ROOT/data/cache/cuda:/cache/cuda" \
   "$LLM_IMAGE" --list-devices 2>&1)
 echo "$devs" | sed 's/^/   /' | tail -n 15
 if echo "$devs" | grep -qiE 'CUDA0.*(P4|Tesla)'; then
   ok "llama.cpp sees the Tesla P4 via CUDA"
 else
-  fail "llama.cpp in $LLM_IMAGE does not see the GPU. Try LLM_IMAGE=notes-llm:pascal in .env and rerun this script"; rc=1
+  fail "llama.cpp in $LLM_IMAGE does not see the GPU. Try LLM_IMAGE=notes-llm:pascal in .env and rerun this script"
+  [ $rc -eq 0 ] && rc=2
 fi
 
 echo

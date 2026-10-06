@@ -18,6 +18,17 @@ by replying to the bot's message about a note (move, rename, merge, tag, delete,
 pip install -r requirements-dev.txt && python -m pytest -q   # tests with a mock model, no GPU needed
 ```
 
+## Install on the server (ZimaOS or any Linux with Docker + NVIDIA)
+
+Over SSH, one command (re-run it later to update):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MykytaKyt/WhaleVault/main/scripts/install.sh | sudo bash
+```
+
+It asks for the bot token and your Telegram id, checks the GPU, downloads the models (~10 GB) and starts
+the containers. On ZimaOS everything goes to `/DATA/AppData/notes-bot`.
+
 - Setup and operations: [docs/runbook.md](docs/runbook.md)
 - Model choices and benchmarks: [docs/models.md](docs/models.md)
 - Server environment: [docs/environment.md](docs/environment.md)
