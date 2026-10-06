@@ -77,8 +77,19 @@ async def test_question_is_not_saved_until_kept(deps):
     assert r.is_question
     assert notes_db.get_note(deps.conn, nid)["status"] == "question"
     assert fts.search(deps.conn, "катализатор") == []
+    # A question never creates a topic (the fake model suggests a new "Kia Soul" topic here)
+    assert notes_db.get_note(deps.conn, nid)["topic_id"] is None
+    assert deps.conn.execute("SELECT count(*) FROM topics").fetchone()[0] == 0
     await finish_question_as_note(deps, nid)
     assert fts.search(deps.conn, "катализатор") == [nid]
+    assert notes_db.get_note(deps.conn, nid)["topic_name"] == "Разное"
+
+
+async def test_question_reuses_an_existing_topic(deps):
+    _, first = await add(deps, "катализатор на Киа Соул забит")
+    r, nid = await add(deps, "что я записывал про катализатор на Киа?")
+    assert r.is_question and not r.new_topic
+    assert notes_db.get_note(deps.conn, nid)["topic_id"] == notes_db.get_note(deps.conn, first)["topic_id"]
 
 
 async def test_forward_context_reaches_model(deps):

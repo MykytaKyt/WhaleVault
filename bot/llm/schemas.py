@@ -99,7 +99,14 @@ def json_schema(model: type[BaseModel]) -> dict[str, Any]:
         if isinstance(node, dict):
             if "$ref" in node:
                 return walk(defs[node["$ref"].split("/")[-1]])
-            return {k: walk(v) for k, v in node.items() if k not in ("title", "default")}
+            out = {}
+            for k, v in node.items():
+                if k == "properties":
+                    # Keys here are field names (a field may be called "title"): keep them all
+                    out[k] = {name: walk(sub) for name, sub in v.items()}
+                elif k not in ("title", "default"):  # schema metadata, not needed by the grammar
+                    out[k] = walk(v)
+            return out
         if isinstance(node, list):
             return [walk(x) for x in node]
         return node

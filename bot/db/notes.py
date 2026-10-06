@@ -51,7 +51,7 @@ def set_clean_text(conn: sqlite3.Connection, note_id: int, clean_text: str) -> N
     )
 
 
-def apply_markup(conn: sqlite3.Connection, note_id: int, *, title: str, summary: str, topic_id: int,
+def apply_markup(conn: sqlite3.Connection, note_id: int, *, title: str, summary: str, topic_id: int | None,
                  tags: list[str], status: str = "done") -> None:
     """Write the model's markup in one transaction and keep counters and FTS in sync."""
     with Tx(conn):

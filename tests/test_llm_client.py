@@ -81,6 +81,28 @@ def test_schema_has_no_refs():
     assert "$ref" not in s and "existing_topic_id" in s
 
 
+def test_schema_keeps_every_field():
+    """Regression: stripping schema "title" metadata once removed the note's `title` field itself,
+    so llama.cpp's grammar made the model omit it and every note failed validation."""
+    from bot.llm.schemas import EditIntent, Extraction
+
+    def check(node):
+        if isinstance(node, dict):
+            if "properties" in node:
+                assert set(node.get("required", [])) <= set(node["properties"]), node
+            for v in node.values():
+                check(v)
+        elif isinstance(node, list):
+            for v in node:
+                check(v)
+
+    for model in (NoteMarkup, Extraction, EditIntent):
+        schema = json_schema(model)
+        check(schema)
+        assert set(schema["properties"]) == set(model.model_fields)
+    assert "title" in json_schema(NoteMarkup)["required"]
+
+
 def test_prompts_are_reread_on_every_call(tmp_path):
     (tmp_path / "p.md").write_text("system v1\n=== USER ===\nhi {{name}}", encoding="utf-8")
     assert render(tmp_path, "p", name="A")[1]["content"] == "hi A"

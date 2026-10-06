@@ -9,7 +9,7 @@ from ..db import topics as topics_db
 from ..deps import Deps
 from ..llm.client import LLMError
 from ..llm.schemas import NoteMarkup
-from .classify import classify, resolve_topic
+from .classify import classify, fallback_topic, resolve_topic
 from .clean import clean
 from .embed import EmbedResult, embed_note
 from .extract import Extracted, apply as apply_extraction
@@ -23,7 +23,7 @@ MAX_ATTEMPTS = 2
 class NoteResult:
     note_id: int
     markup: NoteMarkup
-    topic_id: int
+    topic_id: int | None
     new_topic: bool
     is_question: bool
     embed: EmbedResult = field(default_factory=lambda: EmbedResult([], []))
@@ -78,7 +78,11 @@ async def reembed_dirty(deps: Deps, limit: int = 20) -> int:
 
 
 async def finish_question_as_note(deps: Deps, note_id: int) -> EmbedResult:
-    """The user chose to keep a question as a note. Facts/tasks of a question are not extracted."""
+    """The user chose to keep a question as a note. Facts/tasks of a question are not extracted.
+    A question has no topic of its own (questions never create topics): it goes to the fallback topic."""
+    if notes_db.get_note(deps.conn, note_id)["topic_id"] is None:
+        topic_id, _ = fallback_topic(deps.conn)
+        deps.conn.execute("UPDATE notes SET topic_id = ? WHERE id = ?", (topic_id, note_id))
     notes_db.set_status(deps.conn, note_id, "done")
     note = notes_db.get_note(deps.conn, note_id)
     notes_db.sync_fts(deps.conn, note_id)
