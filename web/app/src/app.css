@@ -1,0 +1,66 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+/* Notion-like palette. Light and dark follow the system setting. */
+:root {
+	--bg: #ffffff;
+	--side: #f7f7f5;
+	--fg: #37352f;
+	--muted: #787774;
+	--faint: #9b9a97;
+	--line: rgba(55, 53, 47, 0.09);
+	--hover: rgba(55, 53, 47, 0.06);
+	--accent: #2383e2;
+	--danger: #e03e3e;
+	--chip: rgba(227, 226, 224, 0.5);
+	--field: rgba(242, 241, 238, 0.6);
+}
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #191919;
+		--side: #202020;
+		--fg: rgba(255, 255, 255, 0.81);
+		--muted: rgba(255, 255, 255, 0.46);
+		--faint: rgba(255, 255, 255, 0.3);
+		--line: rgba(255, 255, 255, 0.094);
+		--hover: rgba(255, 255, 255, 0.055);
+		--accent: #529cca;
+		--danger: #ff7369;
+		--chip: rgba(255, 255, 255, 0.094);
+		--field: rgba(255, 255, 255, 0.055);
+	}
+}
+
+@theme {
+	--font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+	--color-bg: var(--bg);
+	--color-side: var(--side);
+	--color-fg: var(--fg);
+	--color-muted: var(--muted);
+	--color-faint: var(--faint);
+	--color-line: var(--line);
+	--color-hover: var(--hover);
+	--color-accent: var(--accent);
+	--color-danger: var(--danger);
+	--color-chip: var(--chip);
+	--color-field: var(--field);
+}
+
+html,
+body {
+	background: var(--bg);
+	color: var(--fg);
+	font-family: var(--font-sans);
+	-webkit-font-smoothing: antialiased;
+}
+body {
+	font-size: 16px;
+	line-height: 1.6;
+}
+::selection {
+	background: rgba(35, 131, 226, 0.28);
+}
+.prose-note {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}

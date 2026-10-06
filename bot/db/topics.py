@@ -95,3 +95,29 @@ def recent_feedback(conn: sqlite3.Connection, limit: int) -> list[sqlite3.Row]:
            ORDER BY f.id DESC LIMIT ?""",
         (limit,),
     ).fetchall()
+
+
+def update_topic(conn: sqlite3.Connection, topic_id: int, *, name: str | None = None,
+                 description: str | None = None, emoji: str | None = None) -> None:
+    fields, values = [], []
+    for col, val in (("name", name), ("description", description), ("emoji", emoji)):
+        if val is not None:
+            fields.append(f"{col} = ?")
+            values.append(val.strip())
+    if fields:
+        conn.execute(f"UPDATE topics SET {', '.join(fields)}, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                     f"WHERE id = ?", (*values, topic_id))
+
+
+def merge_topics(conn: sqlite3.Connection, source_id: int, target_id: int) -> int:
+    """Move every note of source into target and delete source. Returns the number of notes moved.
+    Not recorded as feedback: it's a reorganisation, not a classification mistake."""
+    if source_id == target_id:
+        return 0
+    with Tx(conn):
+        moved = conn.execute("UPDATE notes SET topic_id = ? WHERE topic_id = ?", (target_id, source_id)).rowcount
+        conn.execute("UPDATE feedback SET from_topic_id = ? WHERE from_topic_id = ?", (target_id, source_id))
+        conn.execute("UPDATE feedback SET to_topic_id = ? WHERE to_topic_id = ?", (target_id, source_id))
+        conn.execute("DELETE FROM topics WHERE id = ?", (source_id,))
+        recount(conn, target_id)
+    return moved

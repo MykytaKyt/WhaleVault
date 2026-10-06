@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     backup_keep: int = 14
     purge_deleted_days: int = 30
 
+    # Web UI (stage 4)
+    web_password: str = ""
+    web_session_days: int = 30
+
     log_level: str = "INFO"
 
     @property

@@ -16,6 +16,7 @@ from .config import Settings, get_settings
 from .db import notes as notes_db
 from .db.connection import connect
 from .deps import Deps
+from .gpulock import GpuLock
 from .handlers import ask, commands, entities, notes, tasks
 from .handlers.access import AllowedUserMiddleware
 from .jobs.backup import backup
@@ -49,10 +50,10 @@ def build_deps(s: Settings) -> Deps:
     conn = connect(s.db_path, s.migrations_dir, s.embed_dim)
     llm = LLMClient(s.llm_url, routine=s.routine_model_name, answer=s.answer_model_name, embed=s.embed_model_name,
                     timeout=s.llm_timeout, json_schema_enabled=s.llm_json_schema)
-    return Deps(settings=s, conn=conn, llm=llm)
+    return Deps(settings=s, conn=conn, llm=llm, gpu_lock=GpuLock(s.data_dir / "gpu.lock"))
 
 
-def schedule_jobs(s: Settings, deps: Deps, bot: Bot) -> AsyncIOScheduler:
+def schedule_jobs(s: Settings, deps: Deps, bot: Bot, worker: Worker) -> AsyncIOScheduler:
     sched = AsyncIOScheduler(timezone=s.tz)
 
     async def alert(text: str) -> None:
@@ -76,6 +77,13 @@ def schedule_jobs(s: Settings, deps: Deps, bot: Bot) -> AsyncIOScheduler:
     sched.add_job(night_unload_job, "interval", seconds=30,
                   args=[deps.llm, s.llm_day_start, s.llm_day_end, s.llm_ttl_night, deps.gpu_lock])
     sched.add_job(reembed_dirty, "interval", minutes=10, args=[deps])
+
+    async def pick_up_queued() -> None:
+        # Notes re-queued from the web UI ("reprocess") live only in the database
+        for nid in notes_db.pending_ids(deps.conn, include_processing=False):
+            worker.enqueue(nid)
+
+    sched.add_job(pick_up_queued, "interval", seconds=30)
 
     async def send(text, kb=None):
         await bot.send_message(s.allowed_user_id, text, reply_markup=kb)
@@ -111,7 +119,7 @@ async def main() -> None:
         BotCommand(command="inbox", description="Не удалось разобрать"),
         BotCommand(command="stats", description="Статистика"),
     ])
-    sched = schedule_jobs(s, deps, bot)
+    sched = schedule_jobs(s, deps, bot, worker)
     sched.start()
     worker.start()
     log.info("bot started, %d notes pending", worker.queue.qsize())

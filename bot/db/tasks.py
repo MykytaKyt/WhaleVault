@@ -14,7 +14,7 @@ def get_task(conn: sqlite3.Connection, task_id: int) -> sqlite3.Row | None:
 
 def open_tasks(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
-        """SELECT t.* FROM tasks t LEFT JOIN notes n ON n.id = t.note_id
+        """SELECT t.*, n.title AS note_title FROM tasks t LEFT JOIN notes n ON n.id = t.note_id
            WHERE t.status = 'open' AND (n.status IS NULL OR n.status NOT IN ('deleted', 'question'))
            ORDER BY t.due_at IS NULL, t.due_at, t.id""").fetchall()
 

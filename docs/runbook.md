@@ -82,6 +82,19 @@ Send the bot any text. Logs: `logs/bot.log`; model failures with full prompt and
 Prompts live in `bot/prompts/*.md` and are mounted into the container: edits apply on the next
 model call, no restart needed.
 
+## Web UI (stage 4)
+
+`docker compose up -d` also starts `notes-web`: FastAPI plus the built SvelteKit UI, the same image as the bot.
+Open `http://<server-ip>:8090` from the home network (or over Tailscale) and log in with `WEB_PASSWORD`
+from `.env` (the installer generates one). The session lasts 30 days; changing the password logs everyone out.
+
+- Never forward the port on the router. `WEB_BIND=127.0.0.1` keeps it local to the server.
+- The bot and the web share `data/notes.db` (SQLite WAL) and one GPU lock (`data/gpu.lock`), so a web
+  "Ask" waits while the bot is processing a note and vice versa.
+- "Reprocess" in the web inbox only re-queues the note; the bot picks it up within 30 seconds.
+- Frontend development: `cd web/app && npm ci && npm run dev` (proxies `/api` to a local
+  `python -m uvicorn web.api.main:app --port 8090`).
+
 ## Update
 
 Re-run the install command, or by hand:
@@ -132,6 +145,7 @@ Moving to another server: copy the whole project folder (`data/` included) and r
 | 0 MB VRAM after 10 min idle | `nvidia-smi --query-gpu=memory.used --format=csv` |
 | RAM ≤ 1.5 GB idle, ≤ 4 GB with 9B | `docker stats --no-stream` |
 | Restart keeps notes; restore works | `docker compose down && docker compose up -d`; restore once as above |
+| **Stage 4:** web UI | Any page < 300 ms with 1 000 notes, palette (Ctrl/Cmd+K) < 200 ms, readable on a phone; wrong password → login page |
 | **Stage 3:** facts and contradictions | Send «катализатор на Kia Soul: ремонт 9 тысяч», later «теперь ремонт 12 тысяч по Kia Soul»; `/entities` → Kia Soul shows the old fact struck through |
 | Tasks and reminders | «спросить у Сергея контакты мастера в пятницу» → task with Friday's date in the report and in `/todo`; a reminder arrives at 09:00 on Thursday and Friday |
 | Edits by reply | Reply to a note report: «перенеси в …», «назови …», «тег …», «это на пятницу», «объедини с заметкой про …» (asks to confirm), «удали», or any extra detail (appended to the note) |
